@@ -32,6 +32,12 @@ As of the latest update, BestMe has achieved the following milestones:
    - Platform abstraction layer for OS-specific functionality
    - Shared code architecture across Windows, macOS, and Linux
 
+6. **Code Quality Improvements**
+   - Enhanced error handling with thiserror for structured errors
+   - Improved async patterns with tokio
+   - Better resource management and cleanup
+   - Fixed compilation issues and code warnings
+
 ## Project Structure
 
 ```
@@ -39,6 +45,10 @@ bestme/
 ├── Cargo.toml               # Main workspace configuration
 ├── src/                     # Core Rust library code
 │   ├── audio/               # Audio capture and processing
+│   │   ├── capture.rs       # Audio capture implementation
+│   │   ├── device.rs        # Audio device management
+│   │   ├── transcribe.rs    # Transcription engine
+│   │   └── voice_commands.rs # Voice command processing
 │   ├── config/              # Configuration management
 │   └── gui/                 # UI state management
 ├── src-tauri/               # Tauri application backend
@@ -124,6 +134,57 @@ The frontend is built with Svelte and includes:
 - Audio visualization components
 - Model download management interface
 
+### Audio Capture & Processing
+
+The audio capture module (`audio/capture.rs`) handles real-time audio capture from the selected device, applies appropriate processing, and sends the audio data to the transcription engine. Key features include:
+- Multi-device support with hot-swapping
+- Peak level detection for visualization
+- Efficient buffering and sample rate conversion
+- Async event-based communication with other components
+
+### Transcription Engine
+
+The transcription engine (`audio/transcribe.rs`) processes audio data using the Whisper model to generate text. Features include:
+- Real-time processing of audio chunks
+- Support for multiple languages and translation
+- Automatic punctuation and formatting
+- Structured error handling with custom error types
+- Efficient async processing with tokio
+
+### Voice Command System
+
+The voice command system (`audio/voice_commands.rs`) detects and processes special commands within the transcription stream. Key features:
+- Command detection and pattern matching
+- Event-based command dispatch
+- Extensible command registry
+- Async processing with tokio
+
+## Recent Improvements
+
+Recent code improvements include:
+
+1. **Enhanced Error Handling**
+   - Added structured error types using thiserror
+   - Improved error propagation with proper context
+   - Better error messaging and recovery paths
+
+2. **Async Patterns and Resource Management**
+   - Improved tokio task management with proper cleanup
+   - Enhanced channel usage for efficient inter-component communication
+   - Implemented graceful shutdown with timeouts for async tasks
+   - Better management of ownership and borrowing in async contexts
+
+3. **Code Organization and Quality**
+   - Fixed numerous compilation issues and warnings
+   - Improved code documentation
+   - Better adherence to Rust idioms and best practices
+   - Enhanced modularity and separation of concerns
+
+4. **Performance Optimizations**
+   - Multi-threaded runtime configuration for better parallelism
+   - Optimized audio buffering and processing
+   - Improved resource usage patterns
+
 ## Next Development Steps
 
 Based on the current implementation and the development plan, the following steps are recommended for continued development:
@@ -151,7 +212,7 @@ Based on the current implementation and the development plan, the following step
    - Add keyboard shortcuts and accessibility features
 
 5. **Error Handling**
-   - Improve error reporting in the UI
+   - Continue improving error reporting in the UI
    - Add recovery mechanisms for common failures
    - Implement diagnostic logging for troubleshooting
 

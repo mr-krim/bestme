@@ -28,6 +28,50 @@ const MODEL_URLS: &[(&str, &str)] = &[
     ("large", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large.bin"),
 ];
 
+/// Supported language codes for Whisper
+pub const SUPPORTED_LANGUAGES: &[(&str, &str)] = &[
+    ("auto", "Auto-detect"),
+    ("en", "English"),
+    ("zh", "Chinese"),
+    ("de", "German"),
+    ("es", "Spanish"),
+    ("ru", "Russian"),
+    ("ko", "Korean"),
+    ("fr", "French"),
+    ("ja", "Japanese"),
+    ("pt", "Portuguese"),
+    ("tr", "Turkish"),
+    ("pl", "Polish"),
+    ("it", "Italian"),
+    ("nl", "Dutch"),
+    ("ar", "Arabic"),
+    ("hi", "Hindi"),
+    ("id", "Indonesian"),
+    ("fi", "Finnish"),
+    ("vi", "Vietnamese"),
+    ("he", "Hebrew"),
+    ("uk", "Ukrainian"),
+    ("sv", "Swedish"),
+    ("cs", "Czech"),
+    ("el", "Greek"),
+    ("ro", "Romanian"),
+    ("da", "Danish"),
+    ("hu", "Hungarian"),
+    ("th", "Thai"),
+    ("fa", "Persian"),
+    ("bg", "Bulgarian"),
+    ("sk", "Slovak"),
+    ("ca", "Catalan"),
+    ("hr", "Croatian"),
+    ("lt", "Lithuanian"),
+    ("et", "Estonian"),
+    ("sl", "Slovenian"),
+    ("lv", "Latvian"),
+    ("mk", "Macedonian"),
+    ("sr", "Serbian"),
+    ("az", "Azerbaijani"),
+];
+
 // Structure to hold transcription state
 pub struct TranscribeState {
     config_manager: Arc<Mutex<ConfigManager>>,
@@ -136,7 +180,10 @@ impl TranscribeState {
         
         // Load model in a blocking task since it's CPU-intensive
         let model_path_str = model_path.to_string_lossy().to_string();
-        match tokio::task::spawn_blocking(move || WhisperContext::new(&model_path_str)).await? {
+        match tokio::task::spawn_blocking(move || {
+            // Use the new_with_params method instead of the deprecated new method
+            WhisperContext::new_with_params(&model_path_str, Default::default())
+        }).await? {
             Ok(context) => {
                 let mut whisper_context = self.whisper_context.lock();
                 *whisper_context = Some(context);
@@ -247,6 +294,7 @@ impl TranscribeState {
     
     // Process accumulated audio data with Whisper model
     async fn process_audio_buffer(&self, audio_buffer: Vec<f32>) -> Result<String> {
+        // Get the context from mutex
         let context_option = {
             let context = self.whisper_context.lock();
             context.clone()
@@ -258,30 +306,65 @@ impl TranscribeState {
             None => return Err(anyhow::anyhow!("Whisper model not loaded")),
         };
         
-        // Get language setting
-        let language = {
+        // Get language and other settings from config
+        let (language, auto_punctuate, translate_to_english, segment_duration) = {
             let config = self.config_manager.lock();
-            config.get_config().audio.speech.language.clone()
+            let speech_config = &config.get_config().audio.speech;
+            (
+                speech_config.language.clone(),
+                speech_config.auto_punctuate,
+                speech_config.translate_to_english,
+                speech_config.segment_duration as f32,
+            )
         };
         
-        // Create params and set language if specified
+        // Create params with enhanced configuration
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        if !language.is_empty() {
-            params.set_language(&language);
+        
+        // Configure language settings
+        if language.is_empty() || language == "auto" {
+            // Auto-detect language
+            params.set_language(None);
+        } else {
+            // Use specific language
+            params.set_language(Some(&language));
+        }
+        
+        // Configure translation if needed
+        if translate_to_english {
+            params.set_translate(true);
+        }
+        
+        // Enable timestamps for better segmentation
+        params.set_print_timestamps(true);
+        params.set_print_special(true);
+        
+        // Configure auto punctuation
+        if auto_punctuate {
+            // For now, this is built into Whisper by default when using language models
+            // We can add more controls if needed in the future
         }
         
         // Process audio in a blocking task as it's CPU-intensive
         let audio_data = audio_buffer.clone();
         match tokio::task::spawn_blocking(move || {
-            let mut state = context.create_state().unwrap();
+            // Create state safely with error handling
+            let state = match context.create_state() {
+                Ok(state) => state,
+                Err(e) => {
+                    error!("Failed to create whisper state: {}", e);
+                    return Err(format!("Failed to create whisper state: {}", e));
+                }
+            };
             
-            // Run inference
-            if state.full(params, &audio_data).is_err() {
-                return String::new();
+            // Run inference with error handling
+            if let Err(e) = state.full(params, &audio_data) {
+                error!("Failed to process audio with whisper: {}", e);
+                return Err(format!("Failed to process audio: {}", e));
             }
             
             // Extract text from segments
-            let num_segments = state.full_n_segments();
+            let num_segments = state.full_n_segments().expect("Failed to get number of segments");
             let mut text = String::new();
             
             for i in 0..num_segments {
@@ -291,10 +374,16 @@ impl TranscribeState {
                 }
             }
             
-            text.trim().to_string()
-        }).await? {
-            text if !text.is_empty() => Ok(text),
-            _ => Err(anyhow::anyhow!("Failed to transcribe audio")),
+            let result = text.trim().to_string();
+            if result.is_empty() {
+                Err("No transcription detected".to_string())
+            } else {
+                Ok(result)
+            }
+        }).await {
+            Ok(Ok(text)) => Ok(text),
+            Ok(Err(e)) => Err(anyhow::anyhow!("{}", e)),
+            Err(e) => Err(anyhow::anyhow!("Task failed: {}", e)),
         }
     }
     
@@ -569,8 +658,45 @@ impl<R: Runtime> Plugin<R> for TranscribePlugin<R> {
 // Tauri command handlers
 #[tauri::command]
 async fn start_transcription(
-    state: tauri::State<'_, TranscribeState>
+    options: Option<serde_json::Value>,
+    state: State<'_, TranscribeState>
 ) -> Result<(), String> {
+    // Extract options if provided
+    let mut language = String::new();
+    let mut translate_to_english = false;
+    
+    if let Some(opts) = options {
+        if let Some(lang) = opts.get("language").and_then(|l| l.as_str()) {
+            language = lang.to_string();
+        }
+        
+        if let Some(translate) = opts.get("translate_to_english").and_then(|t| t.as_bool()) {
+            translate_to_english = translate;
+        }
+    }
+    
+    // Get existing settings from config
+    let config_manager = state.inner().config_manager.clone();
+    
+    // Update settings with any provided options
+    {
+        let mut config = config_manager.lock();
+        let speech_config = &mut config.get_config_mut().audio.speech;
+        
+        // Only update if options were provided
+        if !language.is_empty() {
+            speech_config.language = language;
+        }
+        
+        speech_config.translate_to_english = translate_to_english;
+        
+        // Save changes
+        if let Err(e) = config.save() {
+            warn!("Failed to save updated speech settings: {}", e);
+        }
+    }
+    
+    // Start transcription
     state.inner().start_transcription()
         .map_err(|e| e.to_string())
 }

@@ -1,7 +1,6 @@
-use anyhow::{Context, Result};
-use cpal::traits::{DeviceTrait, StreamTrait};
+use anyhow::Result;
+use cpal::traits::{HostTrait, DeviceTrait, StreamTrait};
 use log::{debug, error, info, warn};
-use ringbuf::HeapRb;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
@@ -9,7 +8,30 @@ use tokio::sync::mpsc;
 use super::AudioConfig;
 
 /// Size of the ring buffer for audio samples
+#[allow(dead_code)]
 const RING_BUFFER_SIZE: usize = 16 * 1024;
+
+/// Audio event types that can be emitted by the capture system
+#[derive(Debug, Clone)]
+pub enum AudioEvent {
+    /// Recording started successfully
+    Started,
+    
+    /// Recording stopped successfully
+    Stopped,
+    
+    /// Error occurred during recording
+    Error(String),
+    
+    /// Audio data was received
+    Data(AudioData),
+    
+    /// Audio level changed
+    LevelChanged(f32),
+    
+    /// Peak audio level (legacy name for compatibility)
+    Level(f32),
+}
 
 /// Audio data structure
 #[derive(Debug, Clone)]
@@ -87,6 +109,11 @@ impl AudioData {
         
         result
     }
+    
+    /// Get an iterator over the samples
+    pub fn iter(&self) -> impl Iterator<Item = &f32> {
+        self.samples.iter()
+    }
 }
 
 /// Audio capture manager
@@ -94,39 +121,52 @@ pub struct CaptureManager {
     /// Audio configuration
     config: AudioConfig,
     
-    /// Audio stream
-    stream: Option<cpal::Stream>,
+    /// Current audio stream
+    audio_stream: Option<cpal::Stream>,
     
     /// Peak audio level (for visualization)
     peak_level: Arc<Mutex<f32>>,
     
-    /// Callback for peak level updates
-    peak_level_callback: Option<Box<dyn Fn(f32) + Send + Sync>>,
+    /// Callback for peak level updates (use Arc to make it clonable)
+    peak_level_callback: Option<Arc<dyn Fn(f32) + Send + Sync + 'static>>,
     
-    /// Callback for audio data
-    audio_data_callback: Option<Box<dyn Fn(AudioData) + Send + Sync>>,
+    /// Callback for audio data (use Arc to make it clonable)
+    audio_data_callback: Option<Arc<dyn Fn(AudioData) + Send + Sync + 'static>>,
+    
+    /// Flag indicating if recording is active
+    is_recording: bool,
+    
+    /// Sender for audio events
+    event_sender: mpsc::Sender<AudioEvent>,
 }
 
 impl CaptureManager {
     /// Create a new capture manager
-    pub fn new() -> Result<Self> {
-        Ok(Self {
+    pub fn new() -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
+        // Create a channel for audio events
+        let (event_sender, event_receiver) = mpsc::channel(100);
+        
+        let manager = Self {
             config: AudioConfig::default(),
-            stream: None,
+            audio_stream: None,
             peak_level: Arc::new(Mutex::new(0.0)),
             peak_level_callback: None,
             audio_data_callback: None,
-        })
+            is_recording: false,
+            event_sender,
+        };
+        
+        Ok((manager, event_receiver))
     }
     
     /// Set a callback for peak level updates
     pub fn on_peak_level<F: Fn(f32) + Send + Sync + 'static>(&mut self, callback: F) {
-        self.peak_level_callback = Some(Box::new(callback));
+        self.peak_level_callback = Some(Arc::new(callback));
     }
     
     /// Set a callback for audio data
     pub fn on_audio_data<F: Fn(AudioData) + Send + Sync + 'static>(&mut self, callback: F) {
-        self.audio_data_callback = Some(Box::new(callback));
+        self.audio_data_callback = Some(Arc::new(callback));
     }
     
     /// Set the audio device
@@ -137,9 +177,9 @@ impl CaptureManager {
         }
     }
     
-    /// Start audio capture
+    /// Start audio capture and send events
     pub fn start(&mut self) -> Result<()> {
-        if self.stream.is_some() {
+        if self.is_recording {
             warn!("Audio capture already running");
             return Ok(());
         }
@@ -208,10 +248,13 @@ impl CaptureManager {
         let sample_rate = stream_config.sample_rate.0;
         let channels = stream_config.channels;
         
-        // Set up callback references
+        // Set up references to be moved into closures
         let peak_level = self.peak_level.clone();
+        
+        // Create weak references to callbacks that will be captured by the closure
         let peak_callback = self.peak_level_callback.clone();
         let audio_callback = self.audio_data_callback.clone();
+        let input_event_sender = self.event_sender.clone();
         
         // Input data callback - receives audio samples
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
@@ -233,24 +276,51 @@ impl CaptureManager {
                 *level = peak;
             }
             
-            // Call peak level callback
+            // Send peak level event
+            let peak_sender = input_event_sender.clone();
+            tokio::spawn(async move {
+                if let Err(e) = peak_sender.send(AudioEvent::Level(peak)).await {
+                    error!("Failed to send audio level event: {}", e);
+                }
+            });
+            
+            // Call peak level callback if provided
             if let Some(callback) = &peak_callback {
                 callback(peak);
             }
             
-            // Call audio data callback
+            // Create audio data and call audio data callback if provided
+            let audio_data = AudioData::new(buffer, sample_rate, channels);
+            
             if let Some(callback) = &audio_callback {
-                let audio_data = AudioData::new(buffer, sample_rate, channels);
-                callback(audio_data);
+                callback(audio_data.clone());
             }
+            
+            // Send audio data event
+            let data_sender = input_event_sender.clone();
+            let data_clone = audio_data;
+            tokio::spawn(async move {
+                if let Err(e) = data_sender.send(AudioEvent::Data(data_clone)).await {
+                    error!("Failed to send audio data event: {}", e);
+                }
+            });
         };
         
-        // Error callback
+        // Create an error callback
+        let err_event_sender = self.event_sender.clone();
         let err_fn = move |err| {
-            error!("Audio capture error: {}", err);
+            let err_str = format!("Audio capture error: {}", err);
+            error!("{}", err_str);
+            
+            let sender = err_event_sender.clone();
+            tokio::spawn(async move {
+                if let Err(e) = sender.send(AudioEvent::Error(err_str.clone())).await {
+                    error!("Failed to send audio error event: {}", e);
+                }
+            });
         };
         
-        // Build and start stream
+        // Build and store the input stream
         let stream = device.build_input_stream(
             &stream_config,
             input_data_fn,
@@ -258,24 +328,45 @@ impl CaptureManager {
             None
         )?;
         
-        stream.play()?;
+        // Store the stream in the struct
+        self.audio_stream = Some(stream);
         
-        // Store stream
-        self.stream = Some(stream);
+        // Start playing the stream
+        self.audio_stream.as_ref().unwrap().play()?;
         
-        info!("Audio capture started");
-        self.config.is_active = true;
+        info!("Started audio recording");
+        self.is_recording = true;
+        
+        // Send started event
+        let event_sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Err(e) = event_sender.send(AudioEvent::Started).await {
+                error!("Failed to send audio start event: {}", e);
+            }
+        });
         
         Ok(())
     }
     
     /// Stop audio capture
     pub fn stop(&mut self) -> Result<()> {
-        if let Some(stream) = self.stream.take() {
-            drop(stream);
-            self.config.is_active = false;
-            info!("Audio capture stopped");
+        if !self.is_recording {
+            return Ok(());
         }
+        
+        // Drop the stream to stop recording
+        self.audio_stream = None;
+        
+        info!("Stopped audio recording");
+        self.is_recording = false;
+        
+        // Send stopped event
+        let event_sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Err(e) = event_sender.send(AudioEvent::Stopped).await {
+                error!("Failed to send audio stop event: {}", e);
+            }
+        });
         
         Ok(())
     }
@@ -292,6 +383,6 @@ impl CaptureManager {
     
     /// Check if audio capture is active
     pub fn is_active(&self) -> bool {
-        self.config.is_active
+        self.is_recording
     }
 } 

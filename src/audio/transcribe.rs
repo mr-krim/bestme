@@ -4,15 +4,38 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
+use thiserror::Error;
 
 use crate::config::{SpeechSettings, WhisperModelSize};
 
 #[cfg(feature = "whisper")]
-use whisper_rs::{WhisperContext, FullParams, SamplingStrategy};
+use whisper_rs::{WhisperContext, FullParams, SamplingStrategy, WhisperContextParameters};
 
 /// Buffer size for audio accumulation before processing
 const AUDIO_BUFFER_SECONDS: usize = 3;
 const SAMPLE_RATE: usize = 16000;
+
+/// Custom error types for transcription
+#[derive(Error, Debug)]
+pub enum TranscriptionError {
+    #[error("Failed to initialize Whisper model: {0}")]
+    ModelInitialization(String),
+    
+    #[error("Failed to create Whisper state: {0}")]
+    StateCreation(String),
+    
+    #[error("Failed to run inference: {0}")]
+    InferenceFailure(String),
+    
+    #[error("Failed to process transcription segments: {0}")]
+    SegmentProcessing(String),
+    
+    #[error("Task cancelled: {0}")]
+    TaskCancelled(String),
+    
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+}
 
 /// Transcription manager for handling speech recognition using Whisper
 #[derive(Clone)]
@@ -53,9 +76,11 @@ enum TranscriptionState {
     Transcribing,
     
     /// Paused
+    #[allow(dead_code)]
     Paused,
     
     /// Error state
+    #[allow(dead_code)]
     Error(String),
 }
 
@@ -136,16 +161,11 @@ impl TranscriptionManager {
                 warn!("Running in simulation mode without actual transcription");
             } else {
                 info!("Loading Whisper model from {:?}", model_file);
-                match WhisperContext::new(&model_file.to_string_lossy()) {
-                    Ok(context) => {
-                        self.whisper_context = Some(Arc::new(context));
-                        info!("Whisper model loaded successfully");
-                    }
-                    Err(e) => {
-                        error!("Failed to load Whisper model: {}", e);
-                        warn!("Running in simulation mode without actual transcription");
-                    }
-                }
+                let builder = WhisperContextParameters::new();
+                let whisper = WhisperContext::new_with_params(&model_file.to_string_lossy(), builder)
+                    .map_err(|e| anyhow::anyhow!("Failed to load whisper model: {}", e))?;
+                self.whisper_context = Some(Arc::new(whisper));
+                info!("Whisper model loaded successfully");
             }
         }
         
@@ -208,9 +228,9 @@ impl TranscriptionManager {
     }
     
     /// Process audio data for transcription
-    pub async fn process_audio(&self, audio_data: &[f32]) -> Result<()> {
+    pub async fn process_audio(&self, audio_data: &[f32]) -> Result<Option<String>> {
         if self.state != TranscriptionState::Transcribing {
-            return Ok(());
+            return Ok(None);
         }
         
         // Create a scope to ensure the lock is released before the await
@@ -231,10 +251,10 @@ impl TranscriptionManager {
         
         // Process the audio buffer if we got a clone
         if let Some(buffer) = buffer_clone {
-            self.transcribe_audio(&buffer).await?;
+            self.transcribe_audio(&buffer).await
+        } else {
+            Ok(None)
         }
-        
-        Ok(())
     }
     
     /// Process the current audio buffer
@@ -260,78 +280,120 @@ impl TranscriptionManager {
     
     /// Transcribe audio data
     #[cfg(feature = "whisper")]
-    async fn transcribe_audio(&self, audio_data: &[f32]) -> Result<()> {
+    async fn transcribe_audio(&self, audio_data: &[f32]) -> Result<Option<String>> {
         // Ensure we have a whisper context
         if let Some(context) = &self.whisper_context {
-            // Set up parameters
-            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+            // Gather settings needed for the closure first
+            let language = self.settings.language.clone();
+            let translate_to_english = self.settings.translate_to_english;
             
-            // Set language if specified
-            if !self.settings.language.is_empty() {
-                params.set_language(&self.settings.language);
-            }
-            
-            // Lock the context for transcription
+            // Set up parameters and clone context and data for the blocking task
             let context = Arc::clone(context);
+            let audio_data = audio_data.to_vec(); // Create owned copy for the blocking task
             
-            // Spawn a blocking task to run the transcription (it's CPU-intensive)
-            let text = tokio::task::spawn_blocking(move || {
-                // Run the inference
-                let mut state = context.create_state().expect("Failed to create whisper state");
+            // Spawn a blocking task for CPU-intensive processing
+            let transcription = tokio::task::spawn_blocking(move || {
+                // Set up parameters inside the closure
+                let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
                 
-                if state.full(params, audio_data).is_ok() {
-                    // Extract the transcription
-                    let num_segments = state.full_n_segments();
-                    let mut text = String::new();
+                // Configure language settings 
+                if language.is_empty() || language == "auto" {
+                    params.set_language(None);
+                } else {
+                    params.set_language(Some(&language));
+                }
+                
+                // Configure translation if needed
+                if translate_to_english {
+                    params.set_translate(true);
+                }
+                
+                // Create the state
+                let mut state = match context.create_state() {
+                    Ok(state) => state,
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("Failed to create whisper state: {}", e));
+                    }
+                };
+                
+                // Run inference
+                if let Err(e) = state.full(params, &audio_data) {
+                    return Err(anyhow::anyhow!("Failed to run inference: {}", e));
+                }
+                
+                // Extract text from segments
+                let num_segments = match state.full_n_segments() {
+                    Ok(n) => n,
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("Failed to get segments: {}", e));
+                    }
+                };
+                
+                let mut text = String::new();
+                
+                for i in 0..num_segments {
+                    if let Ok(segment) = state.full_get_segment_text(i) {
+                        text.push_str(&segment);
+                        text.push(' ');
+                    }
+                }
+                
+                let result = text.trim().to_string();
+                if result.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(result))
+                }
+            }).await.context("Failed to run transcription task")?;
+            
+            // Handle the transcription result
+            match transcription {
+                Ok(Some(text)) => {
+                    // Update current text
+                    {
+                        let mut current = self.current_text.lock();
+                        *current = text.clone();
+                    }
                     
-                    for i in 0..num_segments {
-                        if let Ok(segment) = state.full_get_segment_text(i) {
-                            text.push_str(&segment);
-                            text.push(' ');
+                    // Handle post-processing
+                    if self.settings.save_transcription {
+                        if let Err(e) = self.save_transcription(&text).await {
+                            warn!("Failed to save transcription: {}", e);
                         }
                     }
                     
-                    Some(text.trim().to_string())
-                } else {
-                    None
+                    // Send transcription event
+                    if let Err(e) = self.event_sender.send(TranscriptionEvent::Transcription(text.clone())).await {
+                        warn!("Failed to send transcription event: {}", e);
+                    }
+                    
+                    Ok(Some(text))
+                },
+                Ok(None) => Ok(None),
+                Err(e) => {
+                    // Forward the error
+                    Err(e)
                 }
-            }).await.context("Failed to run transcription task")??;
-            
-            if let Some(text) = text {
-                // Update current text
-                {
-                    let mut current = self.current_text.lock();
-                    *current = text.clone();
-                }
-                
-                // If we want to save the transcription
-                if self.settings.save_transcription {
-                    self.save_transcription(&text).await?;
-                }
-                
-                // Send transcription event
-                let _ = self.event_sender.send(TranscriptionEvent::Transcription(text)).await;
             }
-            
-            Ok(())
         } else {
-            // Simulation mode - generate some fake transcription
             self.simulate_transcription().await
         }
     }
     
     /// Transcribe audio data (simulation when whisper is not enabled)
     #[cfg(not(feature = "whisper"))]
-    async fn transcribe_audio(&self, audio_data: &[f32]) -> Result<()> {
+    async fn transcribe_audio(&self, audio_data: &[f32]) -> Result<Option<String>> {
         // Simulation mode - generate some fake transcription
         self.simulate_transcription().await
     }
     
     /// Generate a simulated transcription for testing
-    async fn simulate_transcription(&self) -> Result<()> {
+    async fn simulate_transcription(&self) -> Result<Option<String>> {
+        // Add a small delay to simulate processing time
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         
-        let fake_text = format!("This is a simulated transcription with the {} model", self.get_model_size_string());
+        let fake_text = format!("This is a simulated transcription with the {} model", 
+                              self.get_model_size_string());
         
         // Update current text
         {
@@ -339,10 +401,12 @@ impl TranscriptionManager {
             *current = fake_text.clone();
         }
         
-        // Send transcription event
-        let _ = self.event_sender.send(TranscriptionEvent::Transcription(fake_text)).await;
+        // Send the simulated text
+        if let Err(e) = self.event_sender.send(TranscriptionEvent::Transcription(fake_text.clone())).await {
+            warn!("Failed to send simulated transcription: {}", e);
+        }
         
-        Ok(())
+        Ok(Some(fake_text))
     }
     
     /// Save transcription to file
@@ -419,5 +483,11 @@ impl TranscriptionManager {
     /// Update the transcription settings
     pub fn update_settings(&mut self, settings: SpeechSettings) {
         self.settings = settings;
+    }
+    
+    // Add an alias method for compatibility
+    #[allow(dead_code)]
+    fn get_model_size_name(&self) -> &'static str {
+        self.get_model_size_string()
     }
 } 

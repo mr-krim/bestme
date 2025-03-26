@@ -10,28 +10,28 @@ license = "MIT"
 
 [dependencies]
 # Utility
-log = "0.4.20" # Logging facility
+log = "0.4" # Logging facility
 env_logger = "0.10.1" # Environment-based logger
-anyhow = "1.0.75" # Error handling
-thiserror = "1.0.48" # Error definition
+anyhow = "1.0"
+thiserror = "1.0" # Error definition
 rand = "0.8.5" # Random number generation
-parking_lot = "0.12.1" # Better Mutex implementation
+parking_lot = "0.12" # Better Mutex implementation
 chrono = "0.4" # Date and time handling
 
 # Configuration and serialization
-serde = { version = "1.0.188", features = ["derive"] }
-serde_json = "1.0.107"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8" # TOML parser for settings.cfg
 directories = "5.0" # Find platform-specific directories
 
 # Audio processing - Phase 2
 cpal = "0.15.2" # Cross-platform audio library
-ringbuf = "0.3.3" # Lock-free ring buffer for audio processing
+ringbuf = "0.3" # Lock-free ring buffer for audio processing
 hound = "3.5.1" # WAV file manipulation 
 spectrum-analyzer = "1.4" # Audio visualization
 
 # Async runtime
-tokio = { version = "1.32.0", features = ["full"] } # Async runtime
+tokio = { version = "1.28", features = ["full"] } # Async runtime
 
 # For SVG icons and visualization
 tiny-skia = { version = "0.11", features = ["std"] }
@@ -89,7 +89,7 @@ lto = true
 codegen-units = 1
 
 # Tauri dependencies
-tauri = { version = "1.4", features = ["api-all"] }
+tauri = { version = "1.4", features = ["system-tray", "window-all"] }
 tauri-build = { version = "1.4" }
 
 [build-dependencies]

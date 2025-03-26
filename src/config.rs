@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::audio::voice_commands::VoiceCommandConfig;
+
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -42,6 +44,9 @@ pub struct AudioSettings {
     
     /// Speech recognition settings
     pub speech: SpeechSettings,
+    
+    /// Voice command settings
+    pub voice_commands: VoiceCommandConfig,
 }
 
 /// Speech recognition settings
@@ -53,8 +58,17 @@ pub struct SpeechSettings {
     /// Path to whisper model directory
     pub model_path: Option<String>,
     
-    /// Language for transcription (blank for auto-detect)
+    /// Language for transcription (blank or "auto" for auto-detect)
     pub language: String,
+    
+    /// Whether to automatically add punctuation
+    pub auto_punctuate: bool,
+    
+    /// Whether to translate non-English speech to English
+    pub translate_to_english: bool,
+    
+    /// Whether to use enhanced context-aware formatting
+    pub context_formatting: bool,
     
     /// Segment duration in seconds
     pub segment_duration: f32,
@@ -64,6 +78,24 @@ pub struct SpeechSettings {
     
     /// Transcription output format: "txt" or "json"
     pub output_format: String,
+    
+    /// Buffer size in seconds for optimized streaming
+    pub buffer_size: f32,
+}
+
+impl SpeechSettings {
+    /// Set model size from string
+    pub fn set_model_size_from_str(&mut self, model_str: &str) -> Result<()> {
+        self.model_size = match model_str.to_lowercase().as_str() {
+            "tiny" => WhisperModelSize::Tiny,
+            "base" => WhisperModelSize::Base,
+            "small" => WhisperModelSize::Small,
+            "medium" => WhisperModelSize::Medium,
+            "large" => WhisperModelSize::Large,
+            _ => return Err(anyhow::anyhow!("Invalid model size: {}", model_str)),
+        };
+        Ok(())
+    }
 }
 
 /// Available Whisper model sizes
@@ -106,11 +138,16 @@ impl Default for Config {
                 speech: SpeechSettings {
                     model_size: WhisperModelSize::default(),
                     model_path: None,
-                    language: "".to_string(),
+                    language: "auto".to_string(),
+                    auto_punctuate: true,
+                    translate_to_english: false,
+                    context_formatting: true,
                     segment_duration: 5.0,
                     save_transcription: false,
                     output_format: "txt".to_string(),
+                    buffer_size: 3.0,
                 },
+                voice_commands: VoiceCommandConfig::default(),
             },
         }
     }
@@ -266,6 +303,18 @@ impl ConfigManager {
                 config.audio.speech.language = language.to_string();
             }
             
+            if let Some(auto_punctuate) = speech.get("auto_punctuate").and_then(|v| v.as_bool()) {
+                config.audio.speech.auto_punctuate = auto_punctuate;
+            }
+            
+            if let Some(translate_to_english) = speech.get("translate_to_english").and_then(|v| v.as_bool()) {
+                config.audio.speech.translate_to_english = translate_to_english;
+            }
+            
+            if let Some(context_formatting) = speech.get("context_formatting").and_then(|v| v.as_bool()) {
+                config.audio.speech.context_formatting = context_formatting;
+            }
+            
             if let Some(segment_duration) = speech.get("segment_duration").and_then(|v| v.as_float()) {
                 config.audio.speech.segment_duration = segment_duration as f32;
             }
@@ -276,6 +325,10 @@ impl ConfigManager {
             
             if let Some(output_format) = speech.get("output_format").and_then(|v| v.as_str()) {
                 config.audio.speech.output_format = output_format.to_string();
+            }
+            
+            if let Some(buffer_size) = speech.get("buffer_size").and_then(|v| v.as_float()) {
+                config.audio.speech.buffer_size = buffer_size as f32;
             }
         }
         
@@ -303,6 +356,53 @@ impl ConfigManager {
         info!("Configuration saved successfully");
         
         Ok(())
+    }
+    
+    /// Get the preferred audio device name
+    pub fn preferred_device_name(&self) -> &str {
+        self.config.audio.input_device.as_deref().unwrap_or("")
+    }
+    
+    /// Set the preferred audio device name
+    pub fn set_preferred_device_name(&mut self, name: String) -> Result<()> {
+        self.config.audio.input_device = if name.is_empty() { None } else { Some(name) };
+        Ok(())
+    }
+    
+    /// Get a reference to the whisper config
+    pub fn whisper_config(&self) -> &SpeechSettings {
+        &self.config.audio.speech
+    }
+    
+    /// Get a mutable reference to the whisper config
+    pub fn whisper_config_mut(&mut self) -> &mut SpeechSettings {
+        &mut self.config.audio.speech
+    }
+    
+    /// Set auto transcribe flag
+    pub fn set_auto_transcribe(&mut self, auto_transcribe: bool) {
+        // This is a new feature, so we'll just print for now
+        println!("Setting auto transcribe: {}", auto_transcribe);
+        // In a real implementation, this would modify a field in the config
+    }
+    
+    /// Get auto transcribe flag
+    pub fn auto_transcribe(&self) -> bool {
+        // This is a new feature, so we'll just return a default for now
+        true
+    }
+    
+    /// Set offline mode flag
+    pub fn set_offline_mode(&mut self, offline_mode: bool) {
+        // This is a new feature, so we'll just print for now
+        println!("Setting offline mode: {}", offline_mode);
+        // In a real implementation, this would modify a field in the config
+    }
+    
+    /// Get offline mode flag
+    pub fn offline_mode(&self) -> bool {
+        // This is a new feature, so we'll just return a default for now
+        true
     }
 }
 

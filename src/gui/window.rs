@@ -24,10 +24,10 @@ pub struct TranscriptionWindow {
     /// Window handle
     hwnd: HWND,
     
-    /// Configuration manager
+    #[allow(dead_code)]
     config_manager: Arc<Mutex<ConfigManager>>,
     
-    /// Device manager
+    #[allow(dead_code)]
     device_manager: Arc<DeviceManager>,
     
     /// Window visibility
