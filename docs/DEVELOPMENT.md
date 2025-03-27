@@ -51,6 +51,15 @@ bestme/
 │   │   └── voice_commands.rs # Voice command processing
 │   ├── config/              # Configuration management
 │   └── gui/                 # UI state management
+├── scripts/                 # Development and utility scripts
+│   ├── run_default.sh       # Run with default settings
+│   ├── run_voice.sh         # Run with voice commands enabled
+│   ├── run_debug.sh         # Run with debug logging enabled
+│   └── test_voice_commands.sh # Test voice command functionality
+├── docs/                    # Documentation
+│   ├── debugging.md         # Debugging guide
+│   ├── VOICE_COMMANDS.md    # Voice command documentation
+│   └── implementation-status.md # Current status overview
 ├── src-tauri/               # Tauri application backend
 │   ├── Cargo.toml           # Tauri backend dependencies
 │   ├── src/                 # Tauri application code

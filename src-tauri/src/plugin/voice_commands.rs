@@ -1,9 +1,13 @@
 use anyhow::Result;
-use log::{error, info};
+use log::{error, info, debug};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tauri::{plugin::Plugin, Invoke, Runtime, State};
 use serde::Serialize;
+use std::collections::VecDeque;
+use std::collections::HashMap;
+use regex;
+use chrono;
 
 use bestme::audio::voice_commands::{
     VoiceCommandManager, 
@@ -14,6 +18,58 @@ use bestme::audio::voice_commands::{
 };
 
 use crate::plugin::TranscribeState;
+
+/// Maximum number of commands to keep in history
+const MAX_COMMAND_HISTORY: usize = 20;
+
+/// Configuration for voice commands
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VoiceCommandConfig {
+    /// Whether voice commands are enabled
+    pub enabled: bool,
+    /// The prefix that must be spoken before commands
+    pub command_prefix: Option<String>,
+    /// Whether the prefix is required
+    pub require_prefix: bool,
+    /// Confidence threshold for command detection (0.0-1.0)
+    pub sensitivity: f32,
+    /// Custom command mappings
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_commands: Vec<(String, String)>,
+}
+
+impl Default for VoiceCommandConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            command_prefix: Some("computer".to_string()),
+            require_prefix: true,
+            sensitivity: 0.7,
+            custom_commands: Vec::new(),
+        }
+    }
+}
+
+/// Data structure for a detected command
+#[derive(Debug, Clone, Serialize)]
+pub struct CommandData {
+    /// Type of command detected
+    pub command_type: String,
+    /// The text that triggered the command
+    pub trigger_text: String,
+    /// When the command was detected
+    pub timestamp: String,
+}
+
+impl From<VoiceCommand> for CommandData {
+    fn from(cmd: VoiceCommand) -> Self {
+        Self {
+            command_type: format!("{:?}", cmd.command_type),
+            trigger_text: cmd.trigger_text,
+            timestamp: chrono::Local::now().to_rfc3339(),
+        }
+    }
+}
 
 /// Structure to hold voice command state
 pub struct VoiceCommandState {
@@ -28,6 +84,9 @@ pub struct VoiceCommandState {
     
     /// Last detected command
     last_command: Arc<Mutex<Option<VoiceCommand>>>,
+    
+    /// Command history (most recent first)
+    command_history: Arc<Mutex<VecDeque<CommandData>>>,
 }
 
 impl VoiceCommandState {
@@ -38,6 +97,7 @@ impl VoiceCommandState {
             transcribe_state: None,
             is_enabled: Arc::new(Mutex::new(false)),
             last_command: Arc::new(Mutex::new(None)),
+            command_history: Arc::new(Mutex::new(VecDeque::with_capacity(MAX_COMMAND_HISTORY))),
         }
     }
     
@@ -52,6 +112,8 @@ impl VoiceCommandState {
         
         // Set up event handling for voice commands
         let last_command = Arc::clone(&self.last_command);
+        let command_history = Arc::clone(&self.command_history);
+        
         tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
                 match event {
@@ -60,7 +122,14 @@ impl VoiceCommandState {
                         
                         // Update last command
                         let mut last = last_command.lock();
-                        *last = Some(command);
+                        *last = Some(command.clone());
+                        
+                        // Add to command history
+                        let mut history = command_history.lock();
+                        history.push_front(CommandData::from(command));
+                        while history.len() > MAX_COMMAND_HISTORY {
+                            history.pop_back();
+                        }
                     },
                     VoiceCommandEvent::Error(err) => {
                         error!("Voice command error: {}", err);
@@ -118,16 +187,30 @@ impl VoiceCommandState {
         
         let manager_lock = self.manager.lock();
         if let Some(manager) = manager_lock.as_ref() {
-            manager.process_transcription(text)
+            // Log the transcription we're processing
+            debug!("Processing transcription for commands: {}", text);
+            
+            // Process the text for commands
+            let commands = manager.process_transcription(text)?;
+            
+            // If commands were detected, log them
+            if !commands.is_empty() {
+                info!("Detected {} commands in transcription", commands.len());
+                for cmd in &commands {
+                    debug!("Command: {:?}, Trigger: {}", cmd.command_type, cmd.trigger_text);
+                }
+            }
+            
+            Ok(commands)
         } else {
             Ok(Vec::new())
         }
     }
     
-    /// Get the last detected command
-    pub fn get_last_command(&self) -> Option<VoiceCommand> {
+    /// Get the last detected command as CommandData for the frontend
+    pub fn get_last_command_data(&self) -> Option<CommandData> {
         let last_command = self.last_command.lock();
-        last_command.clone()
+        last_command.clone().map(CommandData::from)
     }
     
     /// Clear the last command
@@ -135,10 +218,32 @@ impl VoiceCommandState {
         let mut last_command = self.last_command.lock();
         *last_command = None;
     }
+
+    /// Get the command history
+    pub fn get_command_history(&self) -> Vec<CommandData> {
+        let history = self.command_history.lock();
+        history.iter().cloned().collect()
+    }
+    
+    /// Clear the command history
+    pub fn clear_command_history(&self) {
+        let mut history = self.command_history.lock();
+        history.clear();
+    }
     
     /// Check if voice command detection is enabled
     pub fn is_enabled(&self) -> bool {
         *self.is_enabled.lock()
+    }
+
+    /// Enable voice commands
+    pub fn enable(&mut self) -> Result<()> {
+        self.start()
+    }
+    
+    /// Disable voice commands
+    pub fn disable(&mut self) -> Result<()> {
+        self.stop()
     }
 }
 
@@ -155,7 +260,10 @@ impl<R: Runtime> VoiceCommandPlugin<R> {
                 stop_voice_commands,
                 get_last_command,
                 clear_last_command,
-                is_voice_commands_enabled
+                get_command_history,
+                clear_command_history,
+                get_voice_command_config,
+                set_voice_command_config,
             ]),
         }
     }
@@ -171,81 +279,87 @@ impl<R: Runtime> Plugin<R> for VoiceCommandPlugin<R> {
     }
 }
 
-/// Structure for returning command data to the frontend
-#[derive(Serialize)]
-struct CommandData {
-    command_type: String,
-    trigger_text: String,
-    parameters: Option<String>,
-}
-
-impl From<VoiceCommand> for CommandData {
-    fn from(cmd: VoiceCommand) -> Self {
-        let command_type = match cmd.command_type {
-            VoiceCommandType::Delete => "delete",
-            VoiceCommandType::Undo => "undo",
-            VoiceCommandType::Redo => "redo",
-            VoiceCommandType::Capitalize => "capitalize",
-            VoiceCommandType::Lowercase => "lowercase",
-            VoiceCommandType::NewLine => "newline",
-            VoiceCommandType::NewParagraph => "newparagraph",
-            VoiceCommandType::Period => "period",
-            VoiceCommandType::Comma => "comma",
-            VoiceCommandType::QuestionMark => "questionmark",
-            VoiceCommandType::ExclamationMark => "exclamationmark",
-            VoiceCommandType::Pause => "pause",
-            VoiceCommandType::Resume => "resume",
-            VoiceCommandType::Stop => "stop",
-            VoiceCommandType::Custom(ref s) => return Self {
-                command_type: "custom".to_string(),
-                trigger_text: cmd.trigger_text,
-                parameters: Some(s.clone()),
-            },
-        }.to_string();
-        
-        Self {
-            command_type,
-            trigger_text: cmd.trigger_text,
-            parameters: cmd.parameters,
-        }
-    }
-}
-
 // Tauri command handlers
 
 #[tauri::command]
-async fn start_voice_commands(
-    state: State<'_, VoiceCommandState>
+fn start_voice_commands(
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
 ) -> Result<(), String> {
-    state.inner().start()
-        .map_err(|e| e.to_string())
+    state.inner().lock().start().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn stop_voice_commands(
-    state: State<'_, VoiceCommandState>
+fn stop_voice_commands(
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
 ) -> Result<(), String> {
-    state.inner().stop()
-        .map_err(|e| e.to_string())
+    state.inner().lock().stop().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn get_last_command(
-    state: State<'_, VoiceCommandState>
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
 ) -> Option<CommandData> {
-    state.inner().get_last_command().map(CommandData::from)
+    state.inner().lock().get_last_command_data()
 }
 
 #[tauri::command]
 fn clear_last_command(
-    state: State<'_, VoiceCommandState>
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
 ) {
-    state.inner().clear_last_command();
+    state.inner().lock().clear_last_command();
 }
 
 #[tauri::command]
-fn is_voice_commands_enabled(
-    state: State<'_, VoiceCommandState>
-) -> bool {
-    state.inner().is_enabled()
+fn get_command_history(
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
+) -> Vec<CommandData> {
+    state.inner().lock().get_command_history()
+}
+
+#[tauri::command]
+fn clear_command_history(
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
+) {
+    state.inner().lock().clear_command_history();
+}
+
+#[tauri::command]
+fn get_voice_command_config(
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
+) -> Result<VoiceCommandConfig, String> {
+    let state = state.inner().lock();
+    let manager = state.manager.lock();
+    
+    if let Some(manager) = manager.as_ref() {
+        Ok(manager.get_config().clone())
+    } else {
+        Err("Voice command manager not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+fn set_voice_command_config(
+    config: VoiceCommandConfig,
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
+) -> Result<(), String> {
+    let mut state = state.inner().lock();
+    
+    // Save current enabled state
+    let was_enabled = state.is_enabled();
+    
+    // Stop if running
+    if was_enabled {
+        state.stop()?;
+    }
+    
+    // Update configuration
+    state.initialize(config)
+        .map_err(|e| format!("Failed to update voice command config: {}", e))?;
+    
+    // Restart if it was enabled
+    if was_enabled {
+        state.start()?;
+    }
+    
+    Ok(())
 } 

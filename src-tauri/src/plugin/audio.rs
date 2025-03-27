@@ -9,10 +9,50 @@ use bestme::audio::capture::{CaptureManager, AudioData};
 
 use crate::plugin::TranscribeState;
 
+// Thread-safe wrapper for CaptureManager
+pub struct ThreadSafeCaptureManager {
+    inner: std::sync::Mutex<Option<CaptureManager>>,
+}
+
+impl ThreadSafeCaptureManager {
+    pub fn new() -> Self {
+        Self {
+            inner: std::sync::Mutex::new(None),
+        }
+    }
+    
+    pub fn set(&self, manager: CaptureManager) {
+        let mut guard = self.inner.lock().unwrap();
+        *guard = Some(manager);
+    }
+    
+    pub fn take(&self) -> Option<CaptureManager> {
+        let mut guard = self.inner.lock().unwrap();
+        guard.take()
+    }
+    
+    pub fn with_manager<F, T>(&self, f: F) -> Option<T>
+    where
+        F: FnOnce(&mut CaptureManager) -> T,
+    {
+        let mut guard = self.inner.lock().unwrap();
+        guard.as_mut().map(f)
+    }
+    
+    pub fn is_some(&self) -> bool {
+        let guard = self.inner.lock().unwrap();
+        guard.is_some()
+    }
+}
+
+// Make sure ThreadSafeCaptureManager is Send + Sync
+unsafe impl Send for ThreadSafeCaptureManager {}
+unsafe impl Sync for ThreadSafeCaptureManager {}
+
 // Structure to hold our audio state
 pub struct AudioState {
     device_manager: Arc<Mutex<DeviceManager>>,
-    capture_manager: Arc<Mutex<Option<CaptureManager>>>,
+    capture_manager: Arc<ThreadSafeCaptureManager>,
     transcribe_state: Option<Arc<TranscribeState>>,
     is_recording: bool,
     peak_level: Arc<Mutex<f32>>,
@@ -22,7 +62,7 @@ impl AudioState {
     pub fn new(device_manager: Arc<Mutex<DeviceManager>>) -> Self {
         Self {
             device_manager,
-            capture_manager: Arc::new(Mutex::new(None)),
+            capture_manager: Arc::new(ThreadSafeCaptureManager::new()),
             transcribe_state: None,
             is_recording: false,
             peak_level: Arc::new(Mutex::new(0.0)),
@@ -81,8 +121,7 @@ impl AudioState {
             capture_manager.start()?;
             
             // Update the internal state
-            let mut state = self.capture_manager.lock();
-            *state = Some(capture_manager);
+            self.capture_manager.set(capture_manager);
             self.is_recording = true;
             
             Ok(())
@@ -95,8 +134,7 @@ impl AudioState {
     pub fn stop_recording(&mut self) -> Result<()> {
         info!("Stopping audio recording");
         
-        let mut capture_manager_lock = self.capture_manager.lock();
-        if let Some(capture_manager) = capture_manager_lock.take() {
+        if let Some(mut capture_manager) = self.capture_manager.take() {
             capture_manager.stop()?;
             self.is_recording = false;
             
@@ -131,7 +169,7 @@ impl<R: Runtime> AudioPlugin<R> {
             invoke_handler: Box::new(tauri::generate_handler![
                 start_recording,
                 stop_recording,
-                get_peak_level,
+                get_level,
                 is_recording,
             ]),
         }
@@ -159,17 +197,24 @@ async fn start_recording(
         .map_err(|e| e.to_string())
 }
 
+/// Stop audio recording
 #[tauri::command]
-async fn stop_recording(
-    state: tauri::State<'_, AudioState>
-) -> Result<(), String> {
-    let mut state_mut = state.inner().lock();
-    state_mut.stop_recording()
-        .map_err(|e| e.to_string())
+pub async fn stop_recording(state: tauri::State<'_, AudioState>) -> Result<(), String> {
+    info!("Stop recording command received");
+    let audio_state = state.inner();
+    
+    if let Some(mut capture_manager) = audio_state.capture_manager.take() {
+        if let Err(e) = capture_manager.stop() {
+            error!("Failed to stop recording: {}", e);
+            return Err(format!("Failed to stop recording: {}", e));
+        }
+    }
+    
+    Ok(())
 }
 
 #[tauri::command]
-fn get_peak_level(state: tauri::State<'_, AudioState>) -> f32 {
+fn get_level(state: tauri::State<'_, AudioState>) -> f32 {
     state.inner().get_peak_level()
 }
 

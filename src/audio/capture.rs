@@ -116,6 +116,9 @@ impl AudioData {
     }
 }
 
+unsafe impl Send for AudioData {}
+unsafe impl Sync for AudioData {}
+
 /// Audio capture manager
 pub struct CaptureManager {
     /// Audio configuration

@@ -1,11 +1,11 @@
 use anyhow::Result;
-use log::{error, info, warn};
+use log::{error, info, warn, debug};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::io::{Read, Write};
-use tauri::{plugin::Plugin, Invoke, Runtime, AppHandle};
+use tauri::{plugin::Plugin, Invoke, Runtime, AppHandle, Manager};
 use tokio::sync::mpsc;
 use whisper_rs::{WhisperContext, FullParams, SamplingStrategy};
 use futures::StreamExt;
@@ -87,15 +87,15 @@ pub struct TranscribeState {
 }
 
 impl TranscribeState {
-    pub fn new(config_manager: Arc<Mutex<ConfigManager>>, app_handle: Option<AppHandle>) -> Self {
+    pub fn new(config_manager: Arc<Mutex<ConfigManager>>, app_handle: Option<AppHandle>) -> Result<Self, anyhow::Error> {
         let (audio_sender, audio_receiver) = tokio::sync::mpsc::channel(100);
         
         // Default function to get model path - uses app directory
         let get_model_path: Box<dyn Fn(&str) -> PathBuf + Send + Sync> = Box::new(move |model_size| {
             // First check if there's a custom model path in config
             let custom_path = {
-                let config_manager = config_manager.lock().unwrap();
-                config_manager.whisper_config().model_path.clone()
+                let config_manager = config_manager.lock();
+                config_manager.get_config().transcription.model_path.clone()
             };
             
             if let Some(path) = custom_path {
@@ -121,22 +121,24 @@ impl TranscribeState {
             models_dir.join(format!("ggml-{}.bin", model_size))
         });
         
-        Self {
+        Ok(Self {
             config_manager,
             transcription_text: Arc::new(Mutex::new(String::new())),
             transcription_active: Arc::new(Mutex::new(false)),
             audio_receiver: Arc::new(Mutex::new(Some(audio_receiver))),
-            audio_sender,
+            audio_sender: Arc::new(Mutex::new(Some(audio_sender))),
             whisper_context: Arc::new(Mutex::new(None)),
             audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(AUDIO_BUFFER_SIZE))),
             app_handle,
             download_progress: Arc::new(Mutex::new(None)),
             get_model_path,
-        }
+        })
     }
     
-    pub fn set_app_handle(&mut self, app_handle: AppHandle) {
-        self.app_handle = Some(app_handle);
+    pub fn set_app_handle(&self, app_handle: AppHandle) {
+        let mut app_handle_value = None;
+        std::mem::swap(&mut app_handle_value, &mut self.app_handle);
+        app_handle_value = Some(app_handle);
     }
 
     pub fn create_audio_channel(&self) -> mpsc::Sender<AudioData> {
@@ -168,7 +170,7 @@ impl TranscribeState {
     // Load Whisper model based on model size
     async fn load_whisper_model(&self, model_size: &WhisperModelSize) -> Result<()> {
         // Get model path from config or use default path
-        let model_path = (self.get_model_path)(self.get_model_size_string(model_size)).await?;
+        let model_path = (self.get_model_path)(self.get_model_size_string(model_size));
         
         info!("Loading Whisper model: {:?} from {:?}", model_size, model_path);
         
@@ -198,7 +200,7 @@ impl TranscribeState {
     }
     
     // Get model path based on model size
-    async fn get_model_path(&self, model_size: &WhisperModelSize) -> Result<PathBuf> {
+    fn get_model_path(&self, model_size: &WhisperModelSize) -> PathBuf {
         (self.get_model_path)(self.get_model_size_string(model_size))
     }
     
@@ -256,7 +258,7 @@ impl TranscribeState {
             
             // Emit an event to inform UI of download progress
             if let Some(app_handle) = &self.app_handle {
-                let _ = app_handle.emit_all("model-download-progress", 
+                let _ = app_handle.app_handle().emit_all("model-download-progress", 
                     serde_json::json!({
                         "model": model_name,
                         "progress": progress_value
@@ -281,7 +283,7 @@ impl TranscribeState {
         
         // Emit an event to inform UI that download is complete
         if let Some(app_handle) = &self.app_handle {
-            let _ = app_handle.emit_all("model-download-complete", 
+            let _ = app_handle.app_handle().emit_all("model-download-complete", 
                 serde_json::json!({
                     "model": model_name,
                     "path": model_path.to_string_lossy().to_string()
@@ -440,7 +442,7 @@ impl TranscribeState {
                     error!("Failed to load Whisper model: {}", e);
                     // If we have an app handle, emit an error event
                     if let Some(app_handle) = &self_clone.app_handle {
-                        let _ = app_handle.emit_all("transcription-error", 
+                        let _ = app_handle.app_handle().emit_all("transcription-error", 
                             format!("Failed to load Whisper model: {}", e));
                     }
                     return;
@@ -493,7 +495,7 @@ impl TranscribeState {
                                                 
                                                 // Emit transcription update event
                                                 if let Some(app_handle) = &self_clone.app_handle {
-                                                    let _ = app_handle.emit_all("transcription-update", text.clone());
+                                                    let _ = app_handle.app_handle().emit_all("transcription-update", text.clone());
                                                 }
                                             }
                                         },
@@ -501,7 +503,7 @@ impl TranscribeState {
                                             error!("Failed to process audio: {}", e);
                                             // Emit error event
                                             if let Some(app_handle) = &self_clone.app_handle {
-                                                let _ = app_handle.emit_all("transcription-error", 
+                                                let _ = app_handle.app_handle().emit_all("transcription-error", 
                                                     format!("Processing error: {}", e));
                                             }
                                         }
@@ -530,7 +532,7 @@ impl TranscribeState {
                                 
                                 // Emit transcription update event
                                 if let Some(app_handle) = &self_clone.app_handle {
-                                    let _ = app_handle.emit_all("transcription-update", text.clone());
+                                    let _ = app_handle.app_handle().emit_all("transcription-update", text.clone());
                                 }
                             }
                         }
@@ -541,14 +543,14 @@ impl TranscribeState {
                 
                 // Emit completion event
                 if let Some(app_handle) = &self_clone.app_handle {
-                    let _ = app_handle.emit_all("transcription-complete", "");
+                    let _ = app_handle.app_handle().emit_all("transcription-complete", "");
                 }
             } else {
                 error!("No audio receiver available for transcription");
                 
                 // Emit error event
                 if let Some(app_handle) = &self_clone.app_handle {
-                    let _ = app_handle.emit_all("transcription-error", 
+                    let _ = app_handle.app_handle().emit_all("transcription-error", 
                         "No audio receiver available for transcription");
                 }
             }
@@ -644,14 +646,20 @@ impl<R: Runtime> Plugin<R> for TranscribePlugin<R> {
     }
     
     fn initialize(&mut self, app: &AppHandle<R>) -> tauri::plugin::Result<()> {
-        // Get the managed state and set the app handle
-        if let Some(state) = app.try_state::<TranscribeState>() {
-            let mut state = state.inner().clone();
-            state.set_app_handle(app.clone());
-            app.manage(state);
-        }
+        info!("Initializing transcribe plugin");
         
-        Ok(())
+        // Try to access the transcribe state
+        if let Some(state) = app.state::<TranscribeState>() {
+            // State already exists, nothing to do
+            debug!("Transcribe state already exists");
+            Ok(())
+        } else {
+            // Create and manage a new transcribe state
+            let state = TranscribeState::new(Arc::new(Mutex::new(ConfigManager::new())), app.clone());
+            app.manage(state);
+            debug!("Created and managed new transcribe state");
+            Ok(())
+        }
     }
 }
 
@@ -816,7 +824,7 @@ pub fn download_model(
         
         // Notify UI about download start
         if let Some(handle) = &app_handle {
-            let _ = handle.emit_all("model-download-progress", 
+            let _ = handle.app_handle().emit_all("model-download-progress", 
                 serde_json::json!({
                     "model": model_size,
                     "progress": 0.0
@@ -869,7 +877,7 @@ pub fn download_model(
                 
                 // Emit progress event to UI
                 if let Some(handle) = &app_handle {
-                    let _ = handle.emit_all("model-download-progress", 
+                    let _ = handle.app_handle().emit_all("model-download-progress", 
                         serde_json::json!({
                             "model": model_size,
                             "progress": progress_fraction
@@ -893,7 +901,7 @@ pub fn download_model(
         
         // Emit completion event to UI
         if let Some(handle) = &app_handle {
-            let _ = handle.emit_all("model-download-complete", 
+            let _ = handle.app_handle().emit_all("model-download-complete", 
                 serde_json::json!({
                     "model": model_size,
                     "path": target_path.to_string_lossy()
