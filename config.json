@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0",
+  "general": {
+    "theme": "system",
+    "auto_start": false,
+    "minimize_to_tray": true
+  },
+  "audio": {
+    "input_device": null,
+    "input_volume": 1.0,
+    "speech": {
+      "model_size": "Small",
+      "model_path": null,
+      "language": "auto",
+      "auto_punctuate": true,
+      "translate_to_english": false,
+      "context_formatting": true,
+      "segment_duration": 5.0,
+      "save_transcription": false,
+      "output_format": "txt",
+      "buffer_size": 3.0
+    },
+    "voice_commands": {
+      "enabled": false,
+      "command_prefix": "computer",
+      "require_prefix": true,
+      "sensitivity": 0.7,
+      "custom_commands": []
+    }
+  }
+} 

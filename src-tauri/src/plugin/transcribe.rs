@@ -1,15 +1,19 @@
-use anyhow::Result;
-use log::{error, info, warn};
+use anyhow::{Result, anyhow};
+use log::{info, debug, error, warn};
 use parking_lot::Mutex;
-use std::sync::Arc;
-use std::path::{Path, PathBuf};
-use std::fs;
+use reqwest::Client;
+use serde::{Serialize, Deserialize};
 use std::io::{Read, Write};
-use tauri::{plugin::Plugin, Invoke, Runtime, AppHandle};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::fs;
+use tauri::{Manager, AppHandle, State, plugin};
 use tokio::sync::mpsc;
+use tokio::io::AsyncWriteExt;
 use whisper_rs::{WhisperContext, FullParams, SamplingStrategy};
 use futures::StreamExt;
 use serde_json::json;
+use std::marker::PhantomData;
 
 use bestme::audio::capture::AudioData;
 use bestme::config::{ConfigManager, WhisperModelSize};
@@ -20,12 +24,56 @@ const AUDIO_BUFFER_SIZE: usize = WHISPER_SAMPLE_RATE * 5; // 5 seconds of audio
 const MAX_TEXT_LENGTH: usize = 8192;
 
 /// The model URLs for each Whisper model size
-const MODEL_URLS: &[(&str, &str)] = &[
+const MODEL_URLS: [(&str, &str); 5] = [
     ("tiny", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"),
     ("base", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"),
     ("small", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"),
     ("medium", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"),
     ("large", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large.bin"),
+];
+
+/// Supported language codes for Whisper
+pub const SUPPORTED_LANGUAGES: &[(&str, &str)] = &[
+    ("auto", "Auto-detect"),
+    ("en", "English"),
+    ("zh", "Chinese"),
+    ("de", "German"),
+    ("es", "Spanish"),
+    ("ru", "Russian"),
+    ("ko", "Korean"),
+    ("fr", "French"),
+    ("ja", "Japanese"),
+    ("pt", "Portuguese"),
+    ("tr", "Turkish"),
+    ("pl", "Polish"),
+    ("it", "Italian"),
+    ("nl", "Dutch"),
+    ("ar", "Arabic"),
+    ("hi", "Hindi"),
+    ("id", "Indonesian"),
+    ("fi", "Finnish"),
+    ("vi", "Vietnamese"),
+    ("he", "Hebrew"),
+    ("uk", "Ukrainian"),
+    ("sv", "Swedish"),
+    ("cs", "Czech"),
+    ("el", "Greek"),
+    ("ro", "Romanian"),
+    ("da", "Danish"),
+    ("hu", "Hungarian"),
+    ("th", "Thai"),
+    ("fa", "Persian"),
+    ("bg", "Bulgarian"),
+    ("sk", "Slovak"),
+    ("ca", "Catalan"),
+    ("hr", "Croatian"),
+    ("lt", "Lithuanian"),
+    ("et", "Estonian"),
+    ("sl", "Slovenian"),
+    ("lv", "Latvian"),
+    ("mk", "Macedonian"),
+    ("sr", "Serbian"),
+    ("az", "Azerbaijani"),
 ];
 
 // Structure to hold transcription state
@@ -43,15 +91,19 @@ pub struct TranscribeState {
 }
 
 impl TranscribeState {
-    pub fn new(config_manager: Arc<Mutex<ConfigManager>>, app_handle: Option<AppHandle>) -> Self {
+    pub fn new(config_manager: Arc<Mutex<ConfigManager>>, app_handle: Option<AppHandle>) -> Result<Self, anyhow::Error> {
         let (audio_sender, audio_receiver) = tokio::sync::mpsc::channel(100);
         
         // Default function to get model path - uses app directory
         let get_model_path: Box<dyn Fn(&str) -> PathBuf + Send + Sync> = Box::new(move |model_size| {
             // First check if there's a custom model path in config
             let custom_path = {
-                let config_manager = config_manager.lock().unwrap();
-                config_manager.whisper_config().model_path.clone()
+                let config_manager = config_manager.lock();
+                if let Some(speech) = config_manager.get_config().audio.speech.model_path.as_ref() {
+                    Some(speech.clone())
+                } else {
+                    None
+                }
             };
             
             if let Some(path) = custom_path {
@@ -63,7 +115,7 @@ impl TranscribeState {
             
             // Otherwise use app directory for models
             let app_dir = app_handle.as_ref().and_then(|handle| {
-                handle.path_resolver().app_dir()
+                handle.path_resolver().app_data_dir()
             }).unwrap_or_else(|| {
                 PathBuf::from(".")
             });
@@ -77,22 +129,23 @@ impl TranscribeState {
             models_dir.join(format!("ggml-{}.bin", model_size))
         });
         
-        Self {
+        Ok(Self {
             config_manager,
             transcription_text: Arc::new(Mutex::new(String::new())),
             transcription_active: Arc::new(Mutex::new(false)),
             audio_receiver: Arc::new(Mutex::new(Some(audio_receiver))),
-            audio_sender,
+            audio_sender: Arc::new(Mutex::new(Some(audio_sender))),
             whisper_context: Arc::new(Mutex::new(None)),
             audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(AUDIO_BUFFER_SIZE))),
             app_handle,
             download_progress: Arc::new(Mutex::new(None)),
             get_model_path,
-        }
+        })
     }
     
-    pub fn set_app_handle(&mut self, app_handle: AppHandle) {
+    pub fn set_app_handle(&mut self, app_handle: AppHandle) -> Result<()> {
         self.app_handle = Some(app_handle);
+        Ok(())
     }
 
     pub fn create_audio_channel(&self) -> mpsc::Sender<AudioData> {
@@ -124,7 +177,7 @@ impl TranscribeState {
     // Load Whisper model based on model size
     async fn load_whisper_model(&self, model_size: &WhisperModelSize) -> Result<()> {
         // Get model path from config or use default path
-        let model_path = (self.get_model_path)(self.get_model_size_string(model_size)).await?;
+        let model_path = (self.get_model_path)(self.get_model_size_string(model_size));
         
         info!("Loading Whisper model: {:?} from {:?}", model_size, model_path);
         
@@ -136,7 +189,10 @@ impl TranscribeState {
         
         // Load model in a blocking task since it's CPU-intensive
         let model_path_str = model_path.to_string_lossy().to_string();
-        match tokio::task::spawn_blocking(move || WhisperContext::new(&model_path_str)).await? {
+        match tokio::task::spawn_blocking(move || {
+            // Use the new_with_params method instead of the deprecated new method
+            WhisperContext::new_with_params(&model_path_str, Default::default())
+        }).await? {
             Ok(context) => {
                 let mut whisper_context = self.whisper_context.lock();
                 *whisper_context = Some(context);
@@ -151,11 +207,11 @@ impl TranscribeState {
     }
     
     // Get model path based on model size
-    async fn get_model_path(&self, model_size: &WhisperModelSize) -> Result<PathBuf> {
+    fn get_model_path(&self, model_size: &WhisperModelSize) -> PathBuf {
         (self.get_model_path)(self.get_model_size_string(model_size))
     }
     
-    // Download the model
+    // Download the model (using method that mirrors Tauri 2.0's model)
     async fn download_model(&self, model_size: &WhisperModelSize, model_path: &Path) -> Result<()> {
         let model_name = self.get_model_size_string(model_size);
         
@@ -189,116 +245,141 @@ impl TranscribeState {
         let temp_path = model_path.with_extension("tmp");
         let mut file = tokio::fs::File::create(&temp_path).await?;
         let mut stream = response.bytes_stream();
-        let mut downloaded: u64 = 0;
-        let progress = self.download_progress.clone();
         
-        use tokio_util::codec::{BytesCodec, FramedRead};
-        use tokio_stream::StreamExt;
+        let progress = Arc::clone(&self.download_progress);
+        let app_handle = self.app_handle.clone();
+        
+        let mut downloaded: u64 = 0;
+        let mut last_progress: f32 = 0.0;
         
         while let Some(item) = stream.next().await {
-            let chunk = item?;
-            downloaded += chunk.len() as u64;
+            let chunk = match item {
+                Ok(chunk) => chunk,
+                Err(e) => return Err(anyhow::anyhow!("Error during download: {}", e)),
+            };
+            
+            // Write the chunk to file
             file.write_all(&chunk).await?;
             
-            // Update progress
-            let progress_value = downloaded as f32 / total_size as f32;
-            {
-                let mut p = progress.lock();
-                *p = Some((model_name.to_string(), progress_value));
-            }
+            // Update download progress
+            downloaded += chunk.len() as u64;
+            let current_progress = downloaded as f32 / total_size as f32;
             
-            // Emit an event to inform UI of download progress
-            if let Some(app_handle) = &self.app_handle {
-                let _ = app_handle.emit_all("model-download-progress", 
-                    serde_json::json!({
-                        "model": model_name,
-                        "progress": progress_value
-                    })
-                );
+            // Only update progress if it's changed significantly (avoid UI spam)
+            if current_progress - last_progress > 0.01 {
+                last_progress = current_progress;
+                
+                // Update progress in state
+                {
+                    let mut p = progress.lock();
+                    *p = Some((model_name.to_string(), current_progress));
+                }
+                
+                // Emit download progress event to frontend
+                if let Some(handle) = &app_handle {
+                    let _ = handle.emit_all(
+                        "transcribe:download-progress", 
+                        json!({
+                            "model": model_name,
+                            "progress": current_progress
+                        })
+                    );
+                }
             }
         }
         
-        // Close file
+        // Ensure the file is fully written to disk
+        file.flush().await?;
+        
+        // Close the file
         drop(file);
         
-        // Rename temp file to final path
+        // Rename the temporary file to the final file
         tokio::fs::rename(&temp_path, model_path).await?;
         
         // Reset progress
         {
-            let mut p = self.download_progress.lock();
+            let mut p = progress.lock();
             *p = None;
         }
         
-        info!("Model downloaded successfully to: {:?}", model_path);
-        
-        // Emit an event to inform UI that download is complete
-        if let Some(app_handle) = &self.app_handle {
-            let _ = app_handle.emit_all("model-download-complete", 
-                serde_json::json!({
-                    "model": model_name,
-                    "path": model_path.to_string_lossy().to_string()
-                })
-            );
-        }
-        
+        info!("Model download completed: {}", model_path.display());
         Ok(())
     }
     
-    // Process accumulated audio data with Whisper model
+    // Process audio buffer using Whisper
     async fn process_audio_buffer(&self, audio_buffer: Vec<f32>) -> Result<String> {
-        let context_option = {
-            let context = self.whisper_context.lock();
-            context.clone()
+        // Get the Whisper context
+        let context = {
+            let whisper_context = self.whisper_context.lock();
+            
+            if whisper_context.is_none() {
+                // Ensure model is loaded first
+                drop(whisper_context);
+                
+                let config = self.config_manager.lock().get_config().audio.speech.clone();
+                self.load_whisper_model(&config.model_size).await?;
+                
+                // Now get the context again
+                let whisper_context = self.whisper_context.lock();
+                whisper_context.as_ref().ok_or_else(|| anyhow::anyhow!("Failed to load Whisper model"))?
+            } else {
+                whisper_context.as_ref().ok_or_else(|| anyhow::anyhow!("Whisper context not available"))?
+            }
         };
         
-        // If no context, return error
-        let context = match context_option {
-            Some(ctx) => ctx,
-            None => return Err(anyhow::anyhow!("Whisper model not loaded")),
-        };
+        // Get config
+        let speech_config = self.config_manager.lock().get_config().audio.speech.clone();
         
-        // Get language setting
-        let language = {
-            let config = self.config_manager.lock();
-            config.get_config().audio.speech.language.clone()
-        };
+        // Set up parameters for Whisper
+        let mut params = whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 0 });
         
-        // Create params and set language if specified
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        if !language.is_empty() {
-            params.set_language(&language);
+        // Set language if specified, otherwise auto-detect
+        if speech_config.language != "auto" {
+            params.set_language(Some(&speech_config.language));
         }
         
-        // Process audio in a blocking task as it's CPU-intensive
-        let audio_data = audio_buffer.clone();
-        match tokio::task::spawn_blocking(move || {
-            let mut state = context.create_state().unwrap();
-            
-            // Run inference
-            if state.full(params, &audio_data).is_err() {
-                return String::new();
-            }
-            
-            // Extract text from segments
-            let num_segments = state.full_n_segments();
-            let mut text = String::new();
-            
-            for i in 0..num_segments {
-                if let Ok(segment_text) = state.full_get_segment_text(i) {
-                    text.push_str(&segment_text);
-                    text.push(' ');
-                }
-            }
-            
-            text.trim().to_string()
-        }).await? {
-            text if !text.is_empty() => Ok(text),
-            _ => Err(anyhow::anyhow!("Failed to transcribe audio")),
+        // Set translation if enabled
+        if speech_config.translate_to_english {
+            params.set_translate(true);
         }
+        
+        // Other parameters
+        params.set_print_special(false);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+        
+        // Process audio in a blocking task (Whisper is CPU-intensive)
+        let result = tokio::task::spawn_blocking(move || {
+            let audio_buffer = audio_buffer;
+            let context = context;
+            
+            // Run Whisper inference
+            match context.full(params, &audio_buffer) {
+                Ok(_) => {
+                    // Extract number of segments
+                    let num_segments = context.full_n_segments();
+                    
+                    // Get text from each segment
+                    let mut text = String::new();
+                    for i in 0..num_segments {
+                        if let Ok(segment) = context.full_get_segment_text(i) {
+                            text.push_str(&segment);
+                            text.push(' ');
+                        }
+                    }
+                    
+                    Ok(text)
+                },
+                Err(e) => Err(anyhow::anyhow!("Whisper inference failed: {}", e)),
+            }
+        }).await??;
+        
+        Ok(result)
     }
     
-    // Helper to get model size string
+    // Get model size string from enum
     fn get_model_size_string(&self, model_size: &WhisperModelSize) -> &'static str {
         match model_size {
             WhisperModelSize::Tiny => "tiny",
@@ -308,204 +389,193 @@ impl TranscribeState {
             WhisperModelSize::Large => "large",
         }
     }
-
+    
+    // Start transcription
     pub fn start_transcription(&self) -> Result<()> {
-        let mut active = self.transcription_active.lock();
-        if *active {
+        info!("Starting transcription");
+        
+        // Already active?
+        if *self.transcription_active.lock() {
             return Ok(());
         }
         
-        *active = true;
-        
-        // Clear existing text
+        // Set active flag
         {
-            let mut text = self.transcription_text.lock();
-            text.clear();
+            let mut active = self.transcription_active.lock();
+            *active = true;
         }
         
-        // Clear audio buffer
-        {
-            let mut buffer = self.audio_buffer.lock();
-            buffer.clear();
-        }
-        
-        // Get model size from config
-        let model_size = {
-            let config = self.config_manager.lock();
-            config.get_config().audio.speech.model_size.clone()
+        // Start processing audio
+        let audio_receiver = {
+            let mut receiver = self.audio_receiver.lock();
+            receiver.take()
         };
         
-        // Clone references for the async task
-        let transcription_text = Arc::clone(&self.transcription_text);
-        let transcription_active = Arc::clone(&self.transcription_active);
-        let audio_receiver = Arc::clone(&self.audio_receiver);
-        let whisper_context = Arc::clone(&self.whisper_context);
-        let audio_buffer = Arc::clone(&self.audio_buffer);
-        let self_clone = self.clone();
-        
-        // Launch transcription in a background task
-        tokio::spawn(async move {
-            // Load Whisper model if not already loaded
-            if whisper_context.lock().is_none() {
-                if let Err(e) = self_clone.load_whisper_model(&model_size).await {
-                    error!("Failed to load Whisper model: {}", e);
-                    // If we have an app handle, emit an error event
-                    if let Some(app_handle) = &self_clone.app_handle {
-                        let _ = app_handle.emit_all("transcription-error", 
-                            format!("Failed to load Whisper model: {}", e));
-                    }
-                    return;
-                }
-            }
+        if let Some(mut receiver) = audio_receiver {
+            let audio_buffer = Arc::clone(&self.audio_buffer);
+            let transcription_text = Arc::clone(&self.transcription_text);
+            let transcription_active = Arc::clone(&self.transcription_active);
+            let config_manager = Arc::clone(&self.config_manager);
+            let whisper_context = Arc::clone(&self.whisper_context);
+            let self_clone = self.clone();
+            let app_handle = self.app_handle.clone();
             
-            let mut receiver = {
-                let mut recv = audio_receiver.lock();
-                recv.take()
-            };
-            
-            if let Some(mut receiver) = receiver {
-                info!("Starting transcription with model size: {:?}", model_size);
+            // Spawn a task to process audio data
+            tokio::spawn(async move {
+                let mut buffer_timer = tokio::time::interval(std::time::Duration::from_secs(1));
                 
-                // Process audio data and update transcription
-                while {
-                    let active = transcription_active.lock();
-                    *active
-                } {
-                    match receiver.recv().await {
-                        Some(audio_data) => {
-                            // Accumulate audio in buffer
-                            {
-                                let mut buffer = audio_buffer.lock();
-                                
-                                // Convert audio data to expected format
-                                // Resample to whisper sample rate (16kHz)
-                                let samples = audio_data.to_whisper_input(WHISPER_SAMPLE_RATE as u32);
-                                buffer.extend_from_slice(&samples);
-                                
-                                // Process buffer when it gets big enough
-                                if buffer.len() >= AUDIO_BUFFER_SIZE {
-                                    let buffer_copy = buffer.clone();
-                                    buffer.clear();
-                                    
-                                    // Drop the lock before async processing
-                                    drop(buffer);
-                                    
-                                    // Process the copied buffer
-                                    match self_clone.process_audio_buffer(buffer_copy).await {
-                                        Ok(result) => {
-                                            if !result.is_empty() {
-                                                let mut text = transcription_text.lock();
-                                                // Append new text or replace depending on application needs
-                                                if text.len() > MAX_TEXT_LENGTH {
-                                                    *text = format!("{}... {}", &text[..MAX_TEXT_LENGTH/2], result);
-                                                } else {
-                                                    *text = format!("{} {}", text, result);
-                                                }
-                                                
-                                                // Emit transcription update event
-                                                if let Some(app_handle) = &self_clone.app_handle {
-                                                    let _ = app_handle.emit_all("transcription-update", text.clone());
-                                                }
-                                            }
-                                        },
-                                        Err(e) => {
-                                            error!("Failed to process audio: {}", e);
-                                            // Emit error event
-                                            if let Some(app_handle) = &self_clone.app_handle {
-                                                let _ = app_handle.emit_all("transcription-error", 
-                                                    format!("Processing error: {}", e));
-                                            }
+                // Load model eagerly
+                {
+                    let config = config_manager.lock().get_config().audio.speech.clone();
+                    if let Err(e) = self_clone.load_whisper_model(&config.model_size).await {
+                        error!("Failed to load Whisper model: {}", e);
+                        
+                        // Update active flag
+                        let mut active = transcription_active.lock();
+                        *active = false;
+                        
+                        // Emit error event to frontend
+                        if let Some(handle) = &app_handle {
+                            let _ = handle.emit_all(
+                                "transcribe:error",
+                                json!({
+                                    "error": format!("Failed to load Whisper model: {}", e)
+                                })
+                            );
+                        }
+                        
+                        return;
+                    }
+                }
+                
+                // Custom buffer handling
+                let mut last_processed = std::time::Instant::now();
+                let segment_duration = {
+                    let config = config_manager.lock().get_config().audio.speech.clone();
+                    std::time::Duration::from_secs_f32(config.segment_duration)
+                };
+                
+                while let Some(audio_data) = receiver.recv().await {
+                    if !*transcription_active.lock() {
+                        break;
+                    }
+                    
+                    // Add to buffer
+                    {
+                        let mut buffer = audio_buffer.lock();
+                        buffer.extend(audio_data.data.iter());
+                        
+                        // Resize if buffer is too large
+                        if buffer.len() > AUDIO_BUFFER_SIZE {
+                            buffer.drain(0..(buffer.len() - AUDIO_BUFFER_SIZE));
+                        }
+                    }
+                    
+                    // Check if it's time to process the buffer
+                    let now = std::time::Instant::now();
+                    if now.duration_since(last_processed) >= segment_duration {
+                        // Process the buffer
+                        let buffer_copy = {
+                            let buffer = audio_buffer.lock();
+                            buffer.clone()
+                        };
+                        
+                        // Skip if buffer is empty
+                        if buffer_copy.is_empty() {
+                            continue;
+                        }
+                        
+                        // Process the buffer
+                        match self_clone.process_audio_buffer(buffer_copy).await {
+                            Ok(text) => {
+                                if !text.trim().is_empty() {
+                                    // Update transcription text
+                                    {
+                                        let mut t = transcription_text.lock();
+                                        // Add the new text with a space
+                                        if !t.is_empty() && !t.ends_with(' ') {
+                                            *t += " ";
+                                        }
+                                        *t += &text;
+                                        
+                                        // Trim to MAX_TEXT_LENGTH
+                                        if t.len() > MAX_TEXT_LENGTH {
+                                            *t = t.chars().skip(t.len() - MAX_TEXT_LENGTH).collect();
                                         }
                                     }
+                                    
+                                    // Emit transcription event to frontend
+                                    if let Some(handle) = &app_handle {
+                                        let _ = handle.emit_all(
+                                            "transcription:update",
+                                            json!(&text)
+                                        );
+                                    }
                                 }
-                            }
-                        },
-                        None => {
-                            error!("Audio channel closed");
-                            break;
-                        }
-                    }
-                }
-                
-                // Process any remaining audio in buffer
-                {
-                    let buffer = audio_buffer.lock();
-                    if !buffer.is_empty() {
-                        let buffer_copy = buffer.clone();
-                        drop(buffer);
-                        
-                        if let Ok(result) = self_clone.process_audio_buffer(buffer_copy).await {
-                            if !result.is_empty() {
-                                let mut text = transcription_text.lock();
-                                *text = format!("{} {}", text, result);
+                            },
+                            Err(e) => {
+                                error!("Transcription error: {}", e);
                                 
-                                // Emit transcription update event
-                                if let Some(app_handle) = &self_clone.app_handle {
-                                    let _ = app_handle.emit_all("transcription-update", text.clone());
+                                // Emit error event to frontend
+                                if let Some(handle) = &app_handle {
+                                    let _ = handle.emit_all(
+                                        "transcribe:error",
+                                        json!({
+                                            "error": format!("Transcription error: {}", e)
+                                        })
+                                    );
                                 }
                             }
                         }
+                        
+                        last_processed = now;
                     }
                 }
                 
-                info!("Transcription task completed");
-                
-                // Emit completion event
-                if let Some(app_handle) = &self_clone.app_handle {
-                    let _ = app_handle.emit_all("transcription-complete", "");
-                }
-            } else {
-                error!("No audio receiver available for transcription");
-                
-                // Emit error event
-                if let Some(app_handle) = &self_clone.app_handle {
-                    let _ = app_handle.emit_all("transcription-error", 
-                        "No audio receiver available for transcription");
-                }
-            }
-        });
+                // Update active flag when done
+                let mut active = transcription_active.lock();
+                *active = false;
+            });
+        }
         
         Ok(())
     }
-
+    
+    // Stop transcription
     pub fn stop_transcription(&self) -> Result<()> {
         let mut active = self.transcription_active.lock();
         *active = false;
         
-        info!("Stopped transcription");
         Ok(())
     }
     
     pub fn is_transcribing(&self) -> bool {
-        let active = self.transcription_active.lock();
-        *active
+        *self.transcription_active.lock()
     }
     
     pub fn clear_transcription(&self) -> Result<()> {
         let mut text = self.transcription_text.lock();
         *text = String::new();
         
-        info!("Cleared transcription");
-        Ok(())
-    }
-
-    /// Check if the model file exists, and if not, download it.
-    /// Returns the path to the model file.
-    pub fn ensure_model_exists(&self, model_size: &str) -> Result<PathBuf, String> {
-        let model_path = (self.get_model_path)(model_size);
-        
-        // If the model file already exists, return its path
-        if model_path.exists() {
-            return Ok(model_path);
+        // Emit clear event to frontend
+        if let Some(handle) = &self.app_handle {
+            let _ = handle.emit_all("transcription:clear", ());
         }
         
-        // Model doesn't exist, return error
-        Err(format!("Model {} not found at path {:?}. Please download it from the settings page.", 
-                   model_size, model_path))
+        Ok(())
+    }
+    
+    pub fn ensure_model_exists(&self, model_size: &str) -> Result<PathBuf, String> {
+        let path = (self.get_model_path)(model_size);
+        
+        if path.exists() {
+            Ok(path)
+        } else {
+            Err(format!("Model file not found: {}", path.display()))
+        }
     }
 }
 
-// Implement Clone for TranscribeState
 impl Clone for TranscribeState {
     fn clone(&self) -> Self {
         Self {
@@ -523,112 +593,162 @@ impl Clone for TranscribeState {
     }
 }
 
-// Define the Transcribe plugin
-pub struct TranscribePlugin<R: Runtime> {
-    invoke_handler: Box<dyn Fn(Invoke<R>) + Send + Sync>,
+#[derive(Default)]
+pub struct TranscribePlugin {
+    _phantom: PhantomData<()>,
 }
 
-impl<R: Runtime> TranscribePlugin<R> {
+impl TranscribePlugin {
     pub fn new() -> Self {
         Self {
-            invoke_handler: Box::new(tauri::generate_handler![
-                start_transcription,
-                stop_transcription,
-                get_transcription,
-                is_transcribing,
-                clear_transcription,
-                get_download_progress,
-                download_model_command,
-                is_model_downloaded,
-            ]),
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<R: Runtime> Plugin<R> for TranscribePlugin<R> {
+impl tauri::Plugin for TranscribePlugin {
     fn name(&self) -> &'static str {
         "transcribe"
     }
-
-    fn extend_api(&mut self, message: Invoke<R>) {
-        (self.invoke_handler)(message)
-    }
     
-    fn initialize(&mut self, app: &AppHandle<R>) -> tauri::plugin::Result<()> {
-        // Get the managed state and set the app handle
-        if let Some(state) = app.try_state::<TranscribeState>() {
-            let mut state = state.inner().clone();
-            state.set_app_handle(app.clone());
-            app.manage(state);
-        }
+    fn initialize(&mut self, app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Initializing transcription plugin");
+        
+        // Register the plugin
+        app.plugin(
+            tauri::plugin::Builder::new("transcribe")
+                .js_init_script(include_str!("./transcribe_init.js"))
+                .setup(|_app, _| {
+                    Ok(())
+                })
+                .build(),
+        )?;
         
         Ok(())
     }
 }
 
-// Tauri command handlers
+// Tauri 2.0 command handlers
 #[tauri::command]
-async fn start_transcription(
-    state: tauri::State<'_, TranscribeState>
+pub async fn start_transcription(
+    options: Option<serde_json::Value>,
+    state: State<'_, Arc<TranscribeState>>
 ) -> Result<(), String> {
-    state.inner().start_transcription()
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn stop_transcription(
-    state: tauri::State<'_, TranscribeState>
-) -> Result<(), String> {
-    state.inner().stop_transcription()
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn get_transcription(state: tauri::State<'_, TranscribeState>) -> String {
-    state.inner().get_transcription()
-}
-
-#[tauri::command]
-fn is_transcribing(state: tauri::State<'_, TranscribeState>) -> bool {
-    state.inner().is_transcribing()
-}
-
-#[tauri::command]
-async fn clear_transcription(
-    state: tauri::State<'_, TranscribeState>
-) -> Result<(), String> {
-    state.inner().clear_transcription()
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn get_download_progress(state: tauri::State<'_, TranscribeState>) -> Option<(String, f32)> {
-    state.inner().get_download_progress()
-}
-
-#[tauri::command]
-pub fn download_model_command(
-    state: tauri::State<'_, crate::AppState>,
-    model_size: String,
-) -> Result<(), String> {
-    let mut ts = state.transcribe_state.lock().unwrap();
-    
-    // Start the download in a background task
-    let model_size_clone = model_size.clone();
-    let get_model_path = ts.get_model_path.clone();
-    let download_progress = Arc::clone(&ts.download_progress);
-    let app_handle = ts.app_handle.clone();
-    
-    std::thread::spawn(move || {
-        let result = download_model(
-            &model_size_clone,
-            get_model_path(&model_size_clone),
-            download_progress,
-            app_handle,
-        );
+    // Apply any options if provided
+    if let Some(options) = options {
+        let mut config_manager = state.config_manager.lock();
+        let mut config = config_manager.get_config_mut();
         
-        if let Err(e) = result {
-            eprintln!("Error downloading model {}: {}", model_size_clone, e);
+        if let Some(model_size) = options.get("model_size").and_then(|v| v.as_str()) {
+            config.audio.speech.model_size = match model_size {
+                "tiny" => WhisperModelSize::Tiny,
+                "base" => WhisperModelSize::Base,
+                "small" => WhisperModelSize::Small,
+                "medium" => WhisperModelSize::Medium,
+                "large" => WhisperModelSize::Large,
+                _ => WhisperModelSize::Small, // Default
+            };
+        }
+        
+        if let Some(language) = options.get("language").and_then(|v| v.as_str()) {
+            config.audio.speech.language = language.to_string();
+        }
+        
+        if let Some(translate) = options.get("translate_to_english").and_then(|v| v.as_bool()) {
+            config.audio.speech.translate_to_english = translate;
+        }
+        
+        if let Some(auto_punctuate) = options.get("auto_punctuate").and_then(|v| v.as_bool()) {
+            config.audio.speech.auto_punctuate = auto_punctuate;
+        }
+        
+        if let Some(context_formatting) = options.get("context_formatting").and_then(|v| v.as_bool()) {
+            config.audio.speech.context_formatting = context_formatting;
+        }
+        
+        // Save config changes
+        if let Err(e) = config_manager.save() {
+            return Err(format!("Failed to save config changes: {}", e));
+        }
+    }
+    
+    // Start transcription
+    state.start_transcription().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn stop_transcription(
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<(), String> {
+    state.stop_transcription().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_transcription(state: State<'_, Arc<TranscribeState>>) -> String {
+    state.get_transcription()
+}
+
+#[tauri::command]
+pub async fn is_transcribing(state: State<'_, Arc<TranscribeState>>) -> bool {
+    state.is_transcribing()
+}
+
+#[tauri::command]
+pub async fn clear_transcription(
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<(), String> {
+    state.clear_transcription().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_download_progress(state: State<'_, Arc<TranscribeState>>) -> Option<(String, f32)> {
+    state.get_download_progress()
+}
+
+#[tauri::command]
+pub async fn download_model_command(
+    model_size: String,
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<(), String> {
+    // Convert string to WhisperModelSize
+    let model_size_enum = match model_size.as_str() {
+        "tiny" => WhisperModelSize::Tiny,
+        "base" => WhisperModelSize::Base,
+        "small" => WhisperModelSize::Small,
+        "medium" => WhisperModelSize::Medium,
+        "large" => WhisperModelSize::Large,
+        _ => return Err(format!("Invalid model size: {}", model_size)),
+    };
+    
+    // Get model path
+    let model_path = state.get_model_path(&model_size_enum);
+    
+    // Start download
+    tokio::spawn(async move {
+        if let Err(e) = state.download_model(&model_size_enum, &model_path).await {
+            error!("Failed to download model: {}", e);
+            
+            // Emit error event to frontend
+            if let Some(handle) = &state.app_handle {
+                let _ = handle.emit_all(
+                    "transcribe:error",
+                    json!({
+                        "error": format!("Failed to download model: {}", e)
+                    })
+                );
+            }
+        } else {
+            info!("Model download completed successfully");
+            
+            // Emit success event to frontend
+            if let Some(handle) = &state.app_handle {
+                let _ = handle.emit_all(
+                    "transcribe:download-complete",
+                    json!({
+                        "model": model_size
+                    })
+                );
+            }
         }
     });
     
@@ -636,145 +756,11 @@ pub fn download_model_command(
 }
 
 #[tauri::command]
-pub fn is_model_downloaded(
-    state: tauri::State<'_, crate::AppState>,
+pub async fn is_model_downloaded(
     model_size: String,
+    state: State<'_, Arc<TranscribeState>>
 ) -> Result<bool, String> {
-    let ts = state.transcribe_state.lock().unwrap();
-    let model_path = (ts.get_model_path)(&model_size);
-    
-    // Check if the model file exists
-    Ok(model_path.exists())
-}
-
-/// Download a Whisper model to the specified path
-pub fn download_model(
-    model_size: &str,
-    target_path: PathBuf,
-    progress: Arc<Mutex<Option<(String, f32)>>>,
-    app_handle: Option<AppHandle>,
-) -> Result<(), String> {
-    use std::io::Write;
-    use reqwest::Client;
-    
-    // Find the URL for the requested model size
-    let model_url = MODEL_URLS
-        .iter()
-        .find(|(size, _)| *size == model_size)
-        .map(|(_, url)| *url)
-        .ok_or_else(|| format!("Unknown model size: {}", model_size))?;
-    
-    // Create client for downloading
-    let client = Client::new();
-    
-    // Create parent directory if it doesn't exist
-    if let Some(parent) = target_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
-        }
-    }
-    
-    // Create temporary file for downloading
-    let temp_path = target_path.with_extension("download");
-    let mut file = fs::File::create(&temp_path)
-        .map_err(|e| format!("Failed to create file: {}", e))?;
-    
-    // Start download
-    println!("Downloading model {} from {}", model_size, model_url);
-    
-    // Set initial progress
-    {
-        let mut progress_guard = progress.lock().unwrap();
-        *progress_guard = Some((model_size.to_string(), 0.0));
-        
-        // Notify UI about download start
-        if let Some(handle) = &app_handle {
-            let _ = handle.emit_all("model-download-progress", 
-                serde_json::json!({
-                    "model": model_size,
-                    "progress": 0.0
-                }));
-        }
-    }
-    
-    // Run download in a blocking task
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("Failed to create runtime: {}", e))?;
-    
-    rt.block_on(async {
-        // Make request for the file
-        let response = client.get(model_url)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to download model: {}", e))?;
-        
-        // Get total size for progress reporting
-        let total_size = response.content_length()
-            .ok_or_else(|| "Failed to get content length".to_string())?;
-        
-        // Create stream to download file
-        let mut stream = response.bytes_stream();
-        let mut downloaded: u64 = 0;
-        let mut last_percentage: i32 = -1;
-        
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| format!("Error while downloading: {}", e))?;
-            file.write_all(&chunk)
-                .map_err(|e| format!("Error while writing to file: {}", e))?;
-            
-            // Update progress
-            downloaded += chunk.len() as u64;
-            let percentage = (downloaded as f32 / total_size as f32) * 100.0;
-            let rounded_percentage = percentage.round() as i32;
-            
-            // Only update progress if it changed by at least 1%
-            if rounded_percentage != last_percentage {
-                last_percentage = rounded_percentage;
-                let progress_fraction = downloaded as f32 / total_size as f32;
-                
-                // Update progress atomic
-                {
-                    let mut progress_guard = progress.lock().unwrap();
-                    *progress_guard = Some((model_size.to_string(), progress_fraction));
-                }
-                
-                // Emit progress event to UI
-                if let Some(handle) = &app_handle {
-                    let _ = handle.emit_all("model-download-progress", 
-                        serde_json::json!({
-                            "model": model_size,
-                            "progress": progress_fraction
-                        }));
-                }
-            }
-        }
-        
-        // Flush and sync the file to ensure all data is written
-        file.flush().map_err(|e| format!("Failed to flush file: {}", e))?;
-        
-        // Rename temp file to final name
-        fs::rename(&temp_path, &target_path)
-            .map_err(|e| format!("Failed to rename file: {}", e))?;
-        
-        // Clear progress once complete
-        {
-            let mut progress_guard = progress.lock().unwrap();
-            *progress_guard = None;
-        }
-        
-        // Emit completion event to UI
-        if let Some(handle) = &app_handle {
-            let _ = handle.emit_all("model-download-complete", 
-                serde_json::json!({
-                    "model": model_size,
-                    "path": target_path.to_string_lossy()
-                }));
-        }
-        
-        println!("Download complete: {}", target_path.display());
-        Ok(())
-    })
+    // Check if model exists
+    let path = state.ensure_model_exists(&model_size);
+    Ok(path.is_ok())
 } 

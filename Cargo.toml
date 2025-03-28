@@ -1,3 +1,6 @@
+# This project has been migrated to Tauri 2.0
+# See docs/migration-summary.md for details on the migration process
+
 [package]
 name = "bestme"
 version = "0.1.0"
@@ -8,30 +11,36 @@ license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["tauri-2"]
+whisper = ["dep:whisper-rs"] # Enable Whisper speech recognition
+tauri-2 = ["dep:tauri", "dep:tauri-build"]
+
 [dependencies]
 # Utility
-log = "0.4.20" # Logging facility
-env_logger = "0.10.1" # Environment-based logger
-anyhow = "1.0.75" # Error handling
-thiserror = "1.0.48" # Error definition
+log = "0.4" # Logging facility
+env_logger = "0.10" # Environment-based logger
+anyhow = "1.0"
+thiserror = "1.0" # Error definition
 rand = "0.8.5" # Random number generation
-parking_lot = "0.12.1" # Better Mutex implementation
-chrono = "0.4" # Date and time handling
+parking_lot = "0.12" # Better Mutex implementation
+chrono = { version = "0.4", features = ["serde"] } # Date and time handling
+regex = "1.9.3"
 
 # Configuration and serialization
-serde = { version = "1.0.188", features = ["derive"] }
-serde_json = "1.0.107"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8" # TOML parser for settings.cfg
 directories = "5.0" # Find platform-specific directories
 
 # Audio processing - Phase 2
-cpal = "0.15.2" # Cross-platform audio library
-ringbuf = "0.3.3" # Lock-free ring buffer for audio processing
-hound = "3.5.1" # WAV file manipulation 
+cpal = "0.15" # Cross-platform audio library
+ringbuf = "0.3" # Lock-free ring buffer for audio processing
+hound = "3.5" # WAV file manipulation 
 spectrum-analyzer = "1.4" # Audio visualization
 
 # Async runtime
-tokio = { version = "1.32.0", features = ["full"] } # Async runtime
+tokio = { version = "1.28", features = ["full"] } # Async runtime
 
 # For SVG icons and visualization
 tiny-skia = { version = "0.11", features = ["std"] }
@@ -41,6 +50,18 @@ usvg = { version = "0.35", default-features = false }
 whisper-rs = { version = "0.10", optional = true }
 reqwest = { version = "0.12.15", features = ["json", "stream"] }
 tokio-util = { version = "0.7.14", features = ["codec"] }
+
+# Tauri 2.0 dependencies
+tauri = { version = "2.0.0", optional = true }
+
+# Tauri plugins
+tauri-plugin-clipboard-manager = "2.0.0"
+tauri-plugin-dialog = "2.0.0"
+tauri-plugin-fs = "2.0.0"
+tauri-plugin-notification = "2.0.0"
+tauri-plugin-os = "2.0.0"
+tauri-plugin-process = "2.0.0"
+tauri-plugin-shell = "2.0.0"
 
 # GUI and Windows integration
 [dependencies.windows]
@@ -61,11 +82,6 @@ features = [
     "Win32_Media_Audio",
     "Win32_Devices_FunctionDiscovery",
 ]
-
-# Optional dependencies for speech recognition
-[features]
-default = ["whisper"]  # Enable whisper by default
-whisper = ["whisper-rs"] # Enable Whisper speech recognition
 
 # For Phase 4 and later
 # GUI Framework is commented out for now
@@ -88,12 +104,8 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
-# Tauri dependencies
-tauri = { version = "1.4", features = ["api-all"] }
-tauri-build = { version = "1.4" }
-
 [build-dependencies]
-tauri-build = { version = "1.4" }
+tauri-build = { version = "2.0.0", optional = true }
 
 [workspace]
 members = ["src-tauri"]

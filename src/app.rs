@@ -3,6 +3,8 @@ use log::{error, info, warn};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use std::io::{self, Write};
+use std::sync::Arc;
+use parking_lot;
 
 use crate::audio::{
     device::DeviceManager,
@@ -11,7 +13,7 @@ use crate::audio::{
     AudioConfig,
 };
 use crate::config::{Config, ConfigManager};
-use crate::gui::GuiManager;
+use crate::gui::Gui;
 
 /// Main application struct
 pub struct App {
@@ -22,7 +24,7 @@ pub struct App {
     device_manager: DeviceManager,
     
     /// GUI manager
-    gui_manager: Option<GuiManager>,
+    gui_manager: Option<Gui>,
     
     /// Whether to use GUI mode
     use_gui: bool,
@@ -94,9 +96,9 @@ impl App {
             info!("Starting in GUI mode");
             
             // Initialize GUI
-            let mut gui_manager = GuiManager::new(
-                self.config_manager.clone(),
-                self.device_manager.clone(),
+            let mut gui_manager = Gui::new(
+                Arc::new(parking_lot::Mutex::new(self.config_manager.clone())),
+                Arc::new(parking_lot::Mutex::new(self.device_manager.clone())),
             );
             
             gui_manager.initialize()?;
@@ -110,8 +112,9 @@ impl App {
         } else {
             info!("Starting in console mode");
             
-            // Create runtime for async tasks
-            let rt = tokio::runtime::Builder::new_current_thread()
+            // Create a more robust runtime for async tasks
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
                 .enable_all()
                 .build()
                 .context("Failed to create tokio runtime")?;
@@ -162,10 +165,10 @@ impl App {
     /// Start audio capture
     async fn start_audio_capture(&mut self, device_id: Option<&str>) -> Result<()> {
         // Stop any existing capture
-        self.stop_audio_capture();
+        self.stop_audio_capture().await;
         
         // Get device to use
-        let device = if let Some(id) = device_id {
+        let _device = if let Some(id) = device_id {
             self.device_manager.get_input_device(id)
                 .ok_or_else(|| anyhow::anyhow!("Device with ID {} not found", id))?
         } else {
@@ -174,16 +177,21 @@ impl App {
         };
         
         // Create audio config from the application config
-        let app_config = self.config_manager.get_config();
-        let audio_config = AudioConfig {
+        let _audio_config = AudioConfig {
             input_device: device_id.map(String::from),
-            input_volume: app_config.audio.input_volume,
+            input_volume: self.config_manager.get_config().audio.input_volume,
             ..AudioConfig::default()
         };
         
         // Create capture manager
-        let (capture_manager, receiver) = CaptureManager::new(audio_config)
-            .context("Failed to create audio capture manager")?;
+        let _audio_config = self.config_manager.get_config().audio.clone();
+        let (capture_manager, receiver) = match CaptureManager::new() {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to create capture manager: {}", e);
+                return Err(e.into());
+            }
+        };
         
         // Store capture manager and receiver
         self.capture_manager = Some(capture_manager);
@@ -191,7 +199,7 @@ impl App {
         
         // Initialize transcription if not initialized
         if self.transcription_manager.is_none() {
-            let speech_settings = app_config.audio.speech.clone();
+            let speech_settings = self.config_manager.get_config().audio.speech.clone();
             let (transcription_manager, transcription_receiver) = TranscriptionManager::new(speech_settings)
                 .context("Failed to create transcription manager")?;
             
@@ -201,112 +209,97 @@ impl App {
         
         // Start audio capture
         if let Some(capture_manager) = &mut self.capture_manager {
-            capture_manager.start(device)?;
-            
-            // Start audio processing task
-            let mut receiver = self.audio_receiver.take().unwrap();
-            let transcription_manager = self.transcription_manager.as_ref().unwrap().clone();
-            
-            // Start transcription
-            if let Some(manager) = &mut self.transcription_manager {
-                manager.start().await?;
+            match capture_manager.start() {
+                Ok(()) => {
+                    info!("Started audio capture");
+                    // Start audio processing task
+                    let mut receiver = self.audio_receiver.take().unwrap();
+                    let transcription_manager = self.transcription_manager.as_ref().unwrap().clone();
+                    
+                    // Start transcription
+                    if let Some(manager) = &mut self.transcription_manager {
+                        manager.start().await?;
+                    }
+                    
+                    // Process transcription events
+                    let mut transcription_receiver = self.transcription_receiver.take().unwrap();
+                    let transcription_task = tokio::spawn(async move {
+                        while let Some(event) = transcription_receiver.recv().await {
+                            match event {
+                                TranscriptionEvent::Transcription(text) => {
+                                    println!("\nTranscription: {}", text);
+                                },
+                                TranscriptionEvent::PartialTranscription(text) => {
+                                    print!("\rPartial: {}", text);
+                                    let _ = io::stdout().flush();
+                                },
+                                TranscriptionEvent::Started => {
+                                    println!("Transcription started");
+                                },
+                                TranscriptionEvent::Stopped => {
+                                    println!("Transcription stopped");
+                                },
+                                TranscriptionEvent::Error(err) => {
+                                    eprintln!("Transcription error: {}", err);
+                                },
+                            }
+                        }
+                    });
+                    self.transcription_task = Some(transcription_task);
+                    
+                    // Process audio with improved error handling
+                    let transcription_manager_clone = transcription_manager.clone();
+                    let task = tokio::spawn(async move {
+                        while let Some(event) = receiver.recv().await {
+                            match event {
+                                AudioEvent::Data(audio_data) => {
+                                    // Extract raw samples for transcription processing
+                                    let samples = audio_data.get_samples();
+                                    
+                                    // Pass the samples to the transcription manager
+                                    if let Err(e) = transcription_manager_clone.process_audio(samples).await {
+                                        error!("Error processing audio for transcription: {}", e);
+                                    }
+                                },
+                                AudioEvent::Level(_level) => {
+                                    // Handle audio level event
+                                },
+                                AudioEvent::Started => {
+                                    println!("Audio processing started");
+                                },
+                                AudioEvent::Stopped => {
+                                    println!("Audio processing stopped");
+                                    break;
+                                },
+                                AudioEvent::Error(error) => {
+                                    // Handle error event
+                                    error!("Audio capture error: {}", error);
+                                },
+                                AudioEvent::LevelChanged(_level) => {
+                                    // Handle level changed event
+                                },
+                            }
+                        }
+                    });
+                    
+                    self.audio_task = Some(task);
+                },
+                Err(e) => {
+                    error!("Failed to start audio capture: {}", e);
+                    return Err(e.into());
+                }
             }
-            
-            // Process transcription events
-            let mut transcription_receiver = self.transcription_receiver.take().unwrap();
-            let transcription_task = tokio::spawn(async move {
-                while let Some(event) = transcription_receiver.recv().await {
-                    match event {
-                        TranscriptionEvent::Transcription(text) => {
-                            println!("\nTranscription: {}", text);
-                        },
-                        TranscriptionEvent::PartialTranscription(text) => {
-                            print!("\rPartial: {}", text);
-                            io::stdout().flush().unwrap();
-                        },
-                        TranscriptionEvent::Started => {
-                            println!("Transcription started");
-                        },
-                        TranscriptionEvent::Stopped => {
-                            println!("Transcription stopped");
-                        },
-                        TranscriptionEvent::Error(err) => {
-                            eprintln!("Transcription error: {}", err);
-                        },
-                    }
-                }
-            });
-            self.transcription_task = Some(transcription_task);
-            
-            // Process audio
-            let transcription_manager_clone = transcription_manager.clone();
-            let task = tokio::spawn(async move {
-                while let Some(event) = receiver.recv().await {
-                    match event {
-                        AudioEvent::Data(data) => {
-                            // For now, just print the peak value in the buffer
-                            if let Some(max) = data.iter().map(|s| s.abs()).max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)) {
-                                print!("\rAudio level: {:05.2}% ", max * 100.0);
-                                io::stdout().flush().unwrap();
-                            }
-                            
-                            // Send audio data to transcription manager
-                            if let Err(e) = transcription_manager_clone.process_audio(&data).await {
-                                eprintln!("Error processing audio for transcription: {}", e);
-                            }
-                        },
-                        AudioEvent::Level(_) => {
-                            // We'll use the level from Data events for now
-                        },
-                        AudioEvent::Started => {
-                            println!("Audio processing started");
-                        },
-                        AudioEvent::Stopped => {
-                            println!("Audio processing stopped");
-                            break;
-                        },
-                        AudioEvent::Error(err) => {
-                            eprintln!("Audio error: {}", err);
-                        },
-                    }
-                }
-            });
-            
-            self.audio_task = Some(task);
         }
         
         Ok(())
     }
     
     /// Stop audio capture
-    fn stop_audio_capture(&mut self) {
-        if let Some(capture_manager) = &mut self.capture_manager {
-            capture_manager.stop();
+    async fn stop_audio_capture(&mut self) {
+        // Shutdown async tasks directly without creating a new runtime
+        if let Err(e) = self.shutdown_async_tasks().await {
+            error!("Error during async task shutdown: {}", e);
         }
-        
-        // Stop transcription if running
-        if let Some(transcription_manager) = &mut self.transcription_manager {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                let _ = transcription_manager.stop().await;
-            });
-        }
-        
-        if let Some(task) = &self.audio_task {
-            if !task.is_finished() {
-                warn!("Audio task still running, will be aborted");
-            }
-        }
-        
-        if let Some(task) = &self.transcription_task {
-            if !task.is_finished() {
-                warn!("Transcription task still running, will be aborted");
-            }
-        }
-        
-        self.capture_manager = None;
-        self.audio_task = None;
-        self.transcription_task = None;
     }
     
     /// Run the main menu
@@ -371,7 +364,7 @@ impl App {
                 },
                 "3" => {
                     println!("Stopping audio capture...");
-                    self.stop_audio_capture();
+                    self.stop_audio_capture().await;
                 },
                 "4" => {
                     self.list_audio_devices()?;
@@ -521,6 +514,56 @@ impl App {
         
         println!("Whisper configuration saved");
         
+        Ok(())
+    }
+
+    // Add a method to cleanly shut down async tasks
+    async fn shutdown_async_tasks(&mut self) -> Result<()> {
+        info!("Shutting down async tasks");
+        
+        // First, stop the audio capture to prevent new events
+        if let Some(capture_manager) = &mut self.capture_manager {
+            let _ = capture_manager.stop();
+        }
+        
+        // Stop transcription if running
+        if let Some(transcription_manager) = &mut self.transcription_manager {
+            if let Err(e) = transcription_manager.stop().await {
+                warn!("Error stopping transcription: {}", e);
+            }
+        }
+        
+        // Take ownership of tasks
+        let audio_task = self.audio_task.take();
+        let transcription_task = self.transcription_task.take();
+        
+        // Wait for tasks to complete or force abort after timeout
+        if let Some(task) = audio_task {
+            if !task.is_finished() {
+                match tokio::time::timeout(std::time::Duration::from_secs(2), task).await {
+                    Ok(_) => info!("Audio task completed gracefully"),
+                    Err(_) => {
+                        warn!("Audio task did not complete within timeout, will be aborted");
+                    }
+                }
+            }
+        }
+        
+        if let Some(task) = transcription_task {
+            if !task.is_finished() {
+                match tokio::time::timeout(std::time::Duration::from_secs(2), task).await {
+                    Ok(_) => info!("Transcription task completed gracefully"),
+                    Err(_) => {
+                        warn!("Transcription task did not complete within timeout, will be aborted");
+                    }
+                }
+            }
+        }
+        
+        // Clean up remaining resources
+        self.capture_manager = None;
+        
+        info!("Async tasks shutdown complete");
         Ok(())
     }
 } 

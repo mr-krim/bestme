@@ -1,4 +1,4 @@
-use anyhow::{Result, Error};
+use anyhow::Result;
 use log::{error, LevelFilter};
 
 fn main() -> Result<()> {

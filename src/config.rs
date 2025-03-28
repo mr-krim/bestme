@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
-use log::{debug, info, warn};
+use log::{info, warn, error};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+
+use crate::audio::voice_commands::VoiceCommandConfig;
 
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +44,9 @@ pub struct AudioSettings {
     
     /// Speech recognition settings
     pub speech: SpeechSettings,
+    
+    /// Voice command settings
+    pub voice_commands: VoiceCommandConfig,
 }
 
 /// Speech recognition settings
@@ -53,8 +58,17 @@ pub struct SpeechSettings {
     /// Path to whisper model directory
     pub model_path: Option<String>,
     
-    /// Language for transcription (blank for auto-detect)
+    /// Language for transcription (blank or "auto" for auto-detect)
     pub language: String,
+    
+    /// Whether to automatically add punctuation
+    pub auto_punctuate: bool,
+    
+    /// Whether to translate non-English speech to English
+    pub translate_to_english: bool,
+    
+    /// Whether to use enhanced context-aware formatting
+    pub context_formatting: bool,
     
     /// Segment duration in seconds
     pub segment_duration: f32,
@@ -64,6 +78,24 @@ pub struct SpeechSettings {
     
     /// Transcription output format: "txt" or "json"
     pub output_format: String,
+    
+    /// Buffer size in seconds for optimized streaming
+    pub buffer_size: f32,
+}
+
+impl SpeechSettings {
+    /// Set model size from string
+    pub fn set_model_size_from_str(&mut self, model_str: &str) -> Result<()> {
+        self.model_size = match model_str.to_lowercase().as_str() {
+            "tiny" => WhisperModelSize::Tiny,
+            "base" => WhisperModelSize::Base,
+            "small" => WhisperModelSize::Small,
+            "medium" => WhisperModelSize::Medium,
+            "large" => WhisperModelSize::Large,
+            _ => return Err(anyhow::anyhow!("Invalid model size: {}", model_str)),
+        };
+        Ok(())
+    }
 }
 
 /// Available Whisper model sizes
@@ -106,11 +138,16 @@ impl Default for Config {
                 speech: SpeechSettings {
                     model_size: WhisperModelSize::default(),
                     model_path: None,
-                    language: "".to_string(),
+                    language: "auto".to_string(),
+                    auto_punctuate: true,
+                    translate_to_english: false,
+                    context_formatting: true,
                     segment_duration: 5.0,
                     save_transcription: false,
                     output_format: "txt".to_string(),
+                    buffer_size: 3.0,
                 },
+                voice_commands: VoiceCommandConfig::default(),
             },
         }
     }
@@ -142,29 +179,50 @@ impl Clone for ConfigManager {
 impl ConfigManager {
     /// Create a new configuration manager
     pub fn new() -> Result<Self> {
-        let project_dirs = ProjectDirs::from("com", "bestme", "BestMe")
-            .context("Failed to determine project directories")?;
+        let project_dirs = match ProjectDirs::from("com", "bestme", "BestMe") {
+            Some(dirs) => {
+                info!("Project directories found");
+                dirs
+            },
+            None => {
+                error!("Failed to determine project directories");
+                return Err(anyhow::anyhow!("Failed to determine project directories"));
+            }
+        };
         
         let config_dir = project_dirs.config_dir().to_path_buf();
         let config_file = config_dir.join("config.json");
         
-        debug!("Config directory: {:?}", config_dir);
-        debug!("Config file: {:?}", config_file);
+        info!("Config directory: {:?}", config_dir);
+        info!("Config file: {:?}", config_file);
         
         // Check for settings.cfg in the current directory
         let mut settings_file = None;
-        let current_dir = std::env::current_dir().ok();
+        let current_dir = match std::env::current_dir() {
+            Ok(dir) => {
+                info!("Current directory: {:?}", dir);
+                Some(dir)
+            },
+            Err(e) => {
+                warn!("Failed to get current directory: {}", e);
+                None
+            }
+        };
         
         if let Some(dir) = current_dir {
             let settings_path = dir.join("settings.cfg");
+            info!("Looking for settings.cfg at: {:?}", settings_path);
             if settings_path.exists() {
-                debug!("Found settings.cfg: {:?}", settings_path);
+                info!("Found settings.cfg: {:?}", settings_path);
                 settings_file = Some(settings_path);
+            } else {
+                info!("Settings file not found at {:?}", settings_path);
             }
         }
         
         // Create config directory if it doesn't exist
         if !config_dir.exists() {
+            info!("Creating config directory: {:?}", config_dir);
             fs::create_dir_all(&config_dir)
                 .context("Failed to create configuration directory")?;
         }
@@ -172,25 +230,48 @@ impl ConfigManager {
         // Load or create configuration
         let mut config = if config_file.exists() {
             // Load existing configuration
-            let config_str = fs::read_to_string(&config_file)
-                .context("Failed to read configuration file")?;
+            info!("Loading existing configuration from: {:?}", config_file);
+            let config_str = match fs::read_to_string(&config_file) {
+                Ok(str) => str,
+                Err(e) => {
+                    error!("Failed to read configuration file: {}", e);
+                    return Err(anyhow::anyhow!("Failed to read configuration file: {}", e));
+                }
+            };
             
-            serde_json::from_str(&config_str)
-                .context("Failed to parse configuration file")?
+            match serde_json::from_str(&config_str) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    error!("Failed to parse configuration file: {}", e);
+                    return Err(anyhow::anyhow!("Failed to parse configuration file: {}", e));
+                }
+            }
         } else {
             // Create default configuration
+            info!("Config file not found, creating default configuration");
             let default_config = Config::default();
-            let config_str = serde_json::to_string_pretty(&default_config)
-                .context("Failed to serialize default configuration")?;
+            let config_str = match serde_json::to_string_pretty(&default_config) {
+                Ok(str) => str,
+                Err(e) => {
+                    error!("Failed to serialize default configuration: {}", e);
+                    return Err(anyhow::anyhow!("Failed to serialize default configuration: {}", e));
+                }
+            };
             
-            fs::write(&config_file, config_str)
-                .context("Failed to write default configuration file")?;
+            match fs::write(&config_file, config_str) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Failed to write default configuration file: {}", e);
+                    return Err(anyhow::anyhow!("Failed to write default configuration file: {}", e));
+                }
+            }
             
             default_config
         };
         
         // Override with settings from settings.cfg if available
         if let Some(settings_path) = &settings_file {
+            info!("Applying settings from: {:?}", settings_path);
             if let Err(e) = Self::apply_settings_from_file(&mut config, settings_path) {
                 warn!("Failed to apply settings from settings.cfg: {}", e);
             } else {
@@ -241,41 +322,79 @@ impl ConfigManager {
             if let Some(input_volume) = audio.get("input_volume").and_then(|v| v.as_float()) {
                 config.audio.input_volume = input_volume as f32;
             }
-        }
-        
-        // Process speech settings
-        if let Some(speech) = table.get("speech").and_then(|v| v.as_table()) {
-            if let Some(model_size) = speech.get("model_size").and_then(|v| v.as_str()) {
-                config.audio.speech.model_size = match model_size.to_lowercase().as_str() {
-                    "tiny" => WhisperModelSize::Tiny,
-                    "base" => WhisperModelSize::Base,
-                    "small" => WhisperModelSize::Small,
-                    "medium" => WhisperModelSize::Medium,
-                    "large" => WhisperModelSize::Large,
-                    _ => WhisperModelSize::Small,
-                };
-            }
             
-            if let Some(model_path) = speech.get("model_path").and_then(|v| v.as_str()) {
-                if !model_path.is_empty() {
-                    config.audio.speech.model_path = Some(model_path.to_string());
+            // Process speech settings under audio.speech
+            if let Some(speech) = audio.get("speech").and_then(|v| v.as_table()) {
+                if let Some(model_size) = speech.get("model_size").and_then(|v| v.as_str()) {
+                    config.audio.speech.model_size = match model_size.to_lowercase().as_str() {
+                        "tiny" => WhisperModelSize::Tiny,
+                        "base" => WhisperModelSize::Base,
+                        "small" => WhisperModelSize::Small,
+                        "medium" => WhisperModelSize::Medium,
+                        "large" => WhisperModelSize::Large,
+                        _ => WhisperModelSize::Small,
+                    };
+                }
+                
+                if let Some(model_path) = speech.get("model_path").and_then(|v| v.as_str()) {
+                    if !model_path.is_empty() {
+                        config.audio.speech.model_path = Some(model_path.to_string());
+                    }
+                }
+                
+                if let Some(language) = speech.get("language").and_then(|v| v.as_str()) {
+                    config.audio.speech.language = language.to_string();
+                }
+                
+                if let Some(auto_punctuate) = speech.get("auto_punctuate").and_then(|v| v.as_bool()) {
+                    config.audio.speech.auto_punctuate = auto_punctuate;
+                }
+                
+                if let Some(translate_to_english) = speech.get("translate_to_english").and_then(|v| v.as_bool()) {
+                    config.audio.speech.translate_to_english = translate_to_english;
+                }
+                
+                if let Some(context_formatting) = speech.get("context_formatting").and_then(|v| v.as_bool()) {
+                    config.audio.speech.context_formatting = context_formatting;
+                }
+                
+                if let Some(segment_duration) = speech.get("segment_duration").and_then(|v| v.as_float()) {
+                    config.audio.speech.segment_duration = segment_duration as f32;
+                }
+                
+                if let Some(save_transcription) = speech.get("save_transcription").and_then(|v| v.as_bool()) {
+                    config.audio.speech.save_transcription = save_transcription;
+                }
+                
+                if let Some(output_format) = speech.get("output_format").and_then(|v| v.as_str()) {
+                    config.audio.speech.output_format = output_format.to_string();
+                }
+                
+                if let Some(buffer_size) = speech.get("buffer_size").and_then(|v| v.as_float()) {
+                    config.audio.speech.buffer_size = buffer_size as f32;
                 }
             }
             
-            if let Some(language) = speech.get("language").and_then(|v| v.as_str()) {
-                config.audio.speech.language = language.to_string();
-            }
-            
-            if let Some(segment_duration) = speech.get("segment_duration").and_then(|v| v.as_float()) {
-                config.audio.speech.segment_duration = segment_duration as f32;
-            }
-            
-            if let Some(save_transcription) = speech.get("save_transcription").and_then(|v| v.as_bool()) {
-                config.audio.speech.save_transcription = save_transcription;
-            }
-            
-            if let Some(output_format) = speech.get("output_format").and_then(|v| v.as_str()) {
-                config.audio.speech.output_format = output_format.to_string();
+            // Process voice commands settings
+            if let Some(voice_commands) = audio.get("voice_commands").and_then(|v| v.as_table()) {
+                if let Some(enabled) = voice_commands.get("enabled").and_then(|v| v.as_bool()) {
+                    config.audio.voice_commands.enabled = enabled;
+                }
+                
+                if let Some(command_prefix) = voice_commands.get("command_prefix").and_then(|v| v.as_str()) {
+                    config.audio.voice_commands.command_prefix = Some(command_prefix.to_string());
+                }
+                
+                if let Some(require_prefix) = voice_commands.get("require_prefix").and_then(|v| v.as_bool()) {
+                    config.audio.voice_commands.require_prefix = require_prefix;
+                }
+                
+                if let Some(sensitivity) = voice_commands.get("sensitivity").and_then(|v| v.as_float()) {
+                    config.audio.voice_commands.sensitivity = sensitivity as f32;
+                }
+                
+                // Note: custom_commands are not handled here as they have a more complex format
+                // that would require special parsing from the TOML structure
             }
         }
         
@@ -303,6 +422,53 @@ impl ConfigManager {
         info!("Configuration saved successfully");
         
         Ok(())
+    }
+    
+    /// Get the preferred audio device name
+    pub fn preferred_device_name(&self) -> &str {
+        self.config.audio.input_device.as_deref().unwrap_or("")
+    }
+    
+    /// Set the preferred audio device name
+    pub fn set_preferred_device_name(&mut self, name: String) -> Result<()> {
+        self.config.audio.input_device = if name.is_empty() { None } else { Some(name) };
+        Ok(())
+    }
+    
+    /// Get a reference to the whisper config
+    pub fn whisper_config(&self) -> &SpeechSettings {
+        &self.config.audio.speech
+    }
+    
+    /// Get a mutable reference to the whisper config
+    pub fn whisper_config_mut(&mut self) -> &mut SpeechSettings {
+        &mut self.config.audio.speech
+    }
+    
+    /// Set auto transcribe flag
+    pub fn set_auto_transcribe(&mut self, auto_transcribe: bool) {
+        // This is a new feature, so we'll just print for now
+        println!("Setting auto transcribe: {}", auto_transcribe);
+        // In a real implementation, this would modify a field in the config
+    }
+    
+    /// Get auto transcribe flag
+    pub fn auto_transcribe(&self) -> bool {
+        // This is a new feature, so we'll just return a default for now
+        true
+    }
+    
+    /// Set offline mode flag
+    pub fn set_offline_mode(&mut self, offline_mode: bool) {
+        // This is a new feature, so we'll just print for now
+        println!("Setting offline mode: {}", offline_mode);
+        // In a real implementation, this would modify a field in the config
+    }
+    
+    /// Get offline mode flag
+    pub fn offline_mode(&self) -> bool {
+        // This is a new feature, so we'll just return a default for now
+        true
     }
 }
 
