@@ -165,7 +165,7 @@ impl App {
     /// Start audio capture
     async fn start_audio_capture(&mut self, device_id: Option<&str>) -> Result<()> {
         // Stop any existing capture
-        self.stop_audio_capture();
+        self.stop_audio_capture().await;
         
         // Get device to use
         let _device = if let Some(id) = device_id {
@@ -295,14 +295,11 @@ impl App {
     }
     
     /// Stop audio capture
-    fn stop_audio_capture(&mut self) {
-        // Create a tokio runtime for the async shutdown
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            if let Err(e) = self.shutdown_async_tasks().await {
-                error!("Error during async task shutdown: {}", e);
-            }
-        });
+    async fn stop_audio_capture(&mut self) {
+        // Shutdown async tasks directly without creating a new runtime
+        if let Err(e) = self.shutdown_async_tasks().await {
+            error!("Error during async task shutdown: {}", e);
+        }
     }
     
     /// Run the main menu
@@ -367,7 +364,7 @@ impl App {
                 },
                 "3" => {
                     println!("Stopping audio capture...");
-                    self.stop_audio_capture();
+                    self.stop_audio_capture().await;
                 },
                 "4" => {
                     self.list_audio_devices()?;

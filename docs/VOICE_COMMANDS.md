@@ -101,3 +101,197 @@ Planned improvements to the voice command system include:
 - Contextual commands based on application state
 - Enhanced natural language understanding
 - Support for command sequences and macros 
+
+## Tauri 2.0 Migration Guide
+
+### Overview
+The BestMe voice command system is being migrated to Tauri 2.0, which includes several improvements to state management and command handling. This guide outlines the key changes and migration steps.
+
+### State Management Changes
+
+#### Current Approach (Tauri 1.x)
+```rust
+// State definition with generic parameters
+pub struct VoiceCommandState<R: Runtime = tauri_runtime_wry::Wry<tauri::Wry>> {
+    manager: Arc<Mutex<Option<TauriVoiceCommandManager>>>,
+    transcribe_state: Option<Arc<TranscribeState<R>>>,
+    // ...other fields
+}
+
+// State initialization
+app.manage(Arc::new(Mutex::new(VoiceCommandState::new())));
+
+// State access in commands
+#[tauri::command]
+fn get_last_command<R: Runtime>(
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState<R>>>>
+) -> Option<CommandData> {
+    let state = state.inner().lock();
+    state.get_last_command_data()
+}
+```
+
+#### New Approach (Tauri 2.0)
+```rust
+// Simplified state without generic parameters
+pub struct VoiceCommandState {
+    manager: Option<TauriVoiceCommandManager>,
+    app_handle: Option<AppHandle>,
+    // ...other fields
+}
+
+// Direct state management
+app.manage(VoiceCommandState::new());
+
+// Simplified state access in commands
+#[tauri::command]
+async fn get_last_command(
+    state: State<'_, VoiceCommandState>
+) -> Option<CommandData> {
+    state.get_last_command_data()
+}
+```
+
+### Command Handler Migration
+
+#### Current Handlers
+```rust
+#[tauri::command]
+fn toggle_voice_commands<R: Runtime>(
+    enabled: bool,
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState<R>>>>
+) -> Result<(), String> {
+    let mut state = state.inner().lock();
+    
+    if enabled {
+        state.enable()
+    } else {
+        state.disable()
+    }
+}
+```
+
+#### Tauri 2.0 Handlers
+```rust
+#[tauri::command]
+async fn toggle_voice_commands(
+    enabled: bool,
+    state: State<'_, VoiceCommandState>
+) -> Result<(), String> {
+    if enabled {
+        state.enable().await
+    } else {
+        state.disable().await
+    }
+}
+```
+
+### Event System Migration
+
+#### Current Approach
+```rust
+// Using tokio channels
+let (sender, receiver) = mpsc::channel(100);
+
+// Spawning tasks to process events
+tokio::spawn(async move {
+    while let Some(event) = receiver.recv().await {
+        // Process event
+    }
+});
+
+// Sending events
+let _ = sender.send(VoiceCommandEvent::CommandDetected(command)).await;
+```
+
+#### Tauri 2.0 Approach
+```rust
+// Using Tauri's built-in event system
+app.listen_global("voice-command", move |event| {
+    // Process event
+});
+
+// Emitting events
+app.emit_all("voice-command", 
+    CommandDetected { 
+        command_type: "Delete".to_string(),
+        text: "delete last word".to_string()
+    }
+).unwrap();
+```
+
+### Text Editing Commands Interface
+
+Tauri 2.0 introduces a cleaner interface for text editing commands:
+
+```rust
+// Delete operation
+#[tauri::command]
+async fn delete_text(
+    scope: String,
+    state: State<'_, VoiceCommandState>
+) -> Result<String, String> {
+    state.apply_delete_operation(&scope).await
+}
+
+// Undo operation
+#[tauri::command]
+async fn undo(
+    state: State<'_, VoiceCommandState>
+) -> Result<String, String> {
+    state.undo().await
+}
+
+// Redo operation
+#[tauri::command]
+async fn redo(
+    state: State<'_, VoiceCommandState>
+) -> Result<String, String> {
+    state.redo().await
+}
+```
+
+### Frontend Migration
+
+#### Current Frontend Code
+```javascript
+// Invoking command handlers
+const result = await invoke('plugin:voice_commands:get_last_command');
+
+// Event listeners
+await listen('plugin:voice_commands/command-detected', (event) => {
+  // Handle command
+});
+```
+
+#### Tauri 2.0 Frontend Code
+```javascript
+// Simplified command invocation
+const result = await invoke('get_last_command');
+
+// Event listeners with typed payload
+await listen('voice-command', (event: VoiceCommandEvent) => {
+  // Handle command with typed data
+});
+```
+
+### Migration Steps
+
+1. Update state structures to remove generic parameters
+2. Convert Arc<Mutex<>> wrappers to direct state management
+3. Update command handlers to use the new state access pattern
+4. Migrate event handling to use Tauri's built-in event system
+5. Update frontend code to use the new API
+6. Update the plugin registration to use Tauri 2.0 patterns
+
+### Testing
+
+When migrating voice commands to Tauri 2.0, use these testing commands:
+
+```bash
+# Test basic command detection
+./scripts/test_voice_commands.sh
+
+# Test with Tauri 2.0 syntax
+cargo test --features="tauri-2" --package bestme --lib plugin::voice_commands::tests::test_tauri2_voice_command_detection
+``` 

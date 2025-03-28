@@ -1,33 +1,33 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/tauri';
+  import { invoke } from '@tauri-apps/api';
   
   // State
-  let audioDevices: string[] = [];
-  let whisperModels: string[] = [];
-  let languages: [string, string][] = [];
-  let selectedDevice: string = '';
-  let selectedModel: string = '';
-  let selectedLanguage: string = 'auto';
-  let isRecording: boolean = false;
-  let transcriptionText: string = '';
-  let peakLevel: number = 0;
+  let audioDevices = [];
+  let whisperModels = [];
+  let languages = [];
+  let selectedDevice = '';
+  let selectedModel = '';
+  let selectedLanguage = 'auto';
+  let isRecording = false;
+  let transcriptionText = '';
+  let peakLevel = 0;
   
   // Voice command state
-  let voiceCommandsEnabled: boolean = false;
-  let voiceCommandPrefix: string = '';
-  let voiceCommandRequirePrefix: boolean = false;
-  let lastCommand: any = null;
-  let commandHistoryExpanded: boolean = false;
-  let commandHistory: any[] = [];
+  let voiceCommandsEnabled = false;
+  let voiceCommandPrefix = '';
+  let voiceCommandRequirePrefix = false;
+  let lastCommand = null;
+  let commandHistoryExpanded = false;
+  let commandHistory = [];
   
   // Setup intervals for polling
-  let peakLevelInterval: number | null = null;
-  let transcriptionInterval: number | null = null;
-  let commandCheckInterval: number | null = null;
+  let peakLevelInterval = null;
+  let transcriptionInterval = null;
+  let commandCheckInterval = null;
   
   // Advanced transcription state
-  let translateToEnglish: boolean = false;
+  let translateToEnglish = false;
   
   // Voice command variables
   let commandFeedback = null;
@@ -37,12 +37,12 @@
   onMount(async () => {
     try {
       // Get devices and models from backend
-      audioDevices = await invoke('get_audio_devices');
-      whisperModels = await invoke('get_whisper_models');
+      audioDevices = await invoke.audio.get_audio_devices;
+      whisperModels = await invoke.transcribe.get_whisper_models;
       
       // Get language options
       try {
-        languages = await invoke('get_supported_languages');
+        languages = await invoke.transcribe.get_supported_languages;
       } catch (error) {
         console.error('Failed to load language options:', error);
         // Fallback to basic languages
@@ -57,7 +57,7 @@
       
       // Load saved settings if available
       try {
-        const settings = await invoke('get_settings');
+        const settings = await invoke.config.get_settings;
         if (settings) {
           selectedDevice = settings.device_name || (audioDevices.length > 0 ? audioDevices[0] : '');
           selectedModel = settings.model_name || (whisperModels.length > 0 ? whisperModels[0] : '');
@@ -80,7 +80,7 @@
       // Load voice command settings
       try {
         // Use the new config API
-        const voiceConfig = await invoke('plugin:voice_commands:get_voice_command_config');
+        const voiceConfig = await invoke.voice_commands.get_voice_command_config;
         if (voiceConfig) {
           voiceCommandsEnabled = voiceConfig.enabled;
           voiceCommandPrefix = voiceConfig.prefix || 'computer';
@@ -90,7 +90,7 @@
         console.error('Failed to load voice command config:', error);
         // Try fallback to old API
         try {
-          const voiceSettings = await invoke('get_voice_command_settings');
+          const voiceSettings = await invoke.voice_commands.get_voice_command_settings;
           if (voiceSettings) {
             voiceCommandsEnabled = voiceSettings.enabled;
             voiceCommandPrefix = voiceSettings.command_prefix || 'computer';
@@ -103,7 +103,7 @@
       
       // Try to get command history
       try {
-        commandHistory = await invoke('plugin:voice_commands:get_command_history');
+        commandHistory = await invoke.voice_commands.get_command_history;
       } catch (error) {
         console.error('Failed to load command history:', error);
         commandHistory = [];
@@ -113,7 +113,7 @@
       peakLevelInterval = window.setInterval(async () => {
         if (isRecording) {
           try {
-            peakLevel = await invoke('plugin:audio:get_peak_level');
+            peakLevel = await invoke.audio.get_peak_level;
           } catch (error) {
             console.error('Failed to get peak level:', error);
           }
@@ -124,7 +124,7 @@
       transcriptionInterval = window.setInterval(async () => {
         if (isRecording) {
           try {
-            const newText = await invoke('plugin:transcribe:get_transcription');
+            const newText = await invoke.transcribe.get_transcription;
             if (newText !== transcriptionText) {
               transcriptionText = newText;
             }
@@ -138,16 +138,16 @@
       commandCheckInterval = window.setInterval(async () => {
         if (isRecording && voiceCommandsEnabled) {
           try {
-            const command = await invoke('plugin:voice_commands:get_last_command');
+            const command = await invoke.voice_commands.get_last_command;
             if (command && (!lastCommand || lastCommand.trigger_text !== command.trigger_text)) {
               // Get the full command history
-              commandHistory = await invoke('plugin:voice_commands:get_command_history');
+              commandHistory = await invoke.voice_commands.get_command_history;
               
               // Execute command action with visual feedback
               executeVoiceCommand(command);
               
               // Clear the command so we don't process it again
-              await invoke('plugin:voice_commands:clear_last_command');
+              await invoke.voice_commands.clear_last_command;
               
               // Update lastCommand
               lastCommand = command;
@@ -188,7 +188,7 @@
   });
   
   // Execute a voice command with improved feedback
-  async function executeVoiceCommand(command: any) {
+  async function executeVoiceCommand(command) {
     console.log('Executing voice command:', command);
     
     // Display the command feedback
@@ -287,7 +287,7 @@
   }
   
   // Show improved command feedback with animation
-  function showCommandFeedback(command: any) {
+  function showCommandFeedback(command) {
     // Create feedback message
     let message = '';
     switch(command.command_type) {
@@ -327,58 +327,24 @@
   }
   
   // Toggle voice commands
-  async function toggleVoiceCommands(enable: boolean = !voiceCommandsEnabled) {
+  async function toggleVoiceCommands(enabled) {
     try {
-      // Update voice command state
-      voiceCommandsEnabled = enable;
-      
-      // Try new API first
-      try {
-        // Get current config
-        let config;
-        try {
-          config = await invoke('plugin:voice_commands:get_voice_command_config');
-        } catch {
-          config = {
-            prefix: voiceCommandPrefix || 'computer',
-            require_prefix: voiceCommandRequirePrefix,
-            confidence: 0.7
-          };
-        }
-        
-        // Update config
-        const updatedConfig = {
-          ...config,
-          enabled: voiceCommandsEnabled
-        };
-        
-        // Save config
-        await invoke('plugin:voice_commands:set_voice_command_config', { config: updatedConfig });
-      } catch (configError) {
-        console.error('Failed to set voice command config, falling back to old API:', configError);
-        
-        // Fall back to old API
-        await invoke('toggle_voice_commands', { enabled: enable });
-        
-        // Save settings
-        await invoke('save_voice_command_settings', {
-          enabled: voiceCommandsEnabled,
-          command_prefix: voiceCommandPrefix || null,
-          require_prefix: voiceCommandRequirePrefix,
-          sensitivity: 0.8 // Default value
-        });
+      if (enabled) {
+        await invoke.voice_commands.start_processing;
+      } else {
+        await invoke.voice_commands.stop_processing;
       }
       
-      // If recording, apply changes immediately
-      if (isRecording) {
-        if (voiceCommandsEnabled) {
-          await invoke('plugin:voice_commands:start_voice_commands');
-        } else {
-          await invoke('plugin:voice_commands:stop_voice_commands');
+      // Update config
+      await invoke.voice_commands.update_config({
+        config: {
+          enabled: enabled,
+          prefix: voiceCommandPrefix,
+          require_prefix: voiceCommandRequirePrefix
         }
-      }
+      });
       
-      console.log(`Voice commands ${voiceCommandsEnabled ? 'enabled' : 'disabled'}`);
+      voiceCommandsEnabled = enabled;
     } catch (error) {
       console.error('Failed to toggle voice commands:', error);
     }
@@ -387,45 +353,53 @@
   // Start recording and transcription
   async function startRecording() {
     try {
-      // Start audio recording
-      await invoke('plugin:audio:start_recording', { deviceName: selectedDevice });
+      await invoke.audio.start_recording, { 
+        deviceName: selectedDevice 
+      };
       
-      // Start transcription with language settings
-      await invoke('plugin:transcribe:start_transcription', {
+      // Start transcription with current settings
+      await invoke.transcribe.start_transcription, {
         options: {
-          language: selectedLanguage, 
+          model_size: selectedModel,
+          language: selectedLanguage,
           translate_to_english: translateToEnglish
         }
       });
       
+      // Update recording state
+      isRecording = true;
+      
       // Start voice commands if enabled
       if (voiceCommandsEnabled) {
-        await invoke('plugin:voice_commands:start_voice_commands');
+        try {
+          await invoke.voice_commands.start_processing;
+        } catch (error) {
+          console.error('Failed to start voice commands:', error);
+        }
       }
-      
-      isRecording = true;
-      console.log(`Started recording and transcription with device: ${selectedDevice}, language: ${selectedLanguage}`);
     } catch (error) {
       console.error('Failed to start recording:', error);
+      alert(`Error starting recording: ${error}`);
     }
   }
   
   // Stop recording and transcription
   async function stopRecording() {
     try {
-      // Stop transcription first
-      await invoke('plugin:transcribe:stop_transcription');
+      await invoke.audio.stop_recording;
+      await invoke.transcribe.stop_transcription;
       
-      // Then stop audio recording
-      await invoke('plugin:audio:stop_recording');
+      // Update recording state
+      isRecording = false;
       
       // Stop voice commands
       if (voiceCommandsEnabled) {
-        await invoke('plugin:voice_commands:stop_voice_commands');
+        try {
+          await invoke.voice_commands.stop_processing;
+        } catch (error) {
+          console.error('Failed to stop voice commands:', error);
+        }
       }
-      
-      isRecording = false;
-      console.log('Stopped recording and transcription');
     } catch (error) {
       console.error('Failed to stop recording:', error);
     }
@@ -443,9 +417,7 @@
   // Clear transcription text
   async function clearTranscription() {
     try {
-      if (isRecording) {
-        await invoke('plugin:transcribe:clear_transcription');
-      }
+      await invoke.transcribe.clear_transcription;
       transcriptionText = '';
     } catch (error) {
       console.error('Failed to clear transcription:', error);
@@ -461,13 +433,13 @@
   }
   
   // Get language display name
-  function getLanguageDisplayName(code: string): string {
+  function getLanguageDisplayName(code) {
     const lang = languages.find(l => l[0] === code);
     return lang ? lang[1] : code;
   }
   
   // Format timestamp for displaying in the command history
-  function formatTimestamp(timestamp: number): string {
+  function formatTimestamp(timestamp) {
     if (!timestamp) return 'Unknown';
     
     const date = new Date(timestamp);
@@ -477,7 +449,7 @@
   // Refresh command history
   async function refreshCommandHistory() {
     try {
-      commandHistory = await invoke('plugin:voice_commands:get_command_history');
+      commandHistory = await invoke.voice_commands.get_command_history;
     } catch (error) {
       console.error('Failed to refresh command history:', error);
       commandHistory = [];
@@ -487,7 +459,7 @@
   // Clear command history
   async function clearCommandHistory() {
     try {
-      await invoke('plugin:voice_commands:clear_command_history');
+      await invoke.voice_commands.clear_command_history;
       commandHistory = [];
     } catch (error) {
       console.error('Failed to clear command history:', error);

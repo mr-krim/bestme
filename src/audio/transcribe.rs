@@ -382,7 +382,7 @@ impl TranscriptionManager {
     
     /// Transcribe audio data (simulation when whisper is not enabled)
     #[cfg(not(feature = "whisper"))]
-    async fn transcribe_audio(&self, audio_data: &[f32]) -> Result<Option<String>> {
+    async fn transcribe_audio(&self, _audio_data: &[f32]) -> Result<Option<String>> {
         // Simulation mode - generate some fake transcription
         self.simulate_transcription().await
     }

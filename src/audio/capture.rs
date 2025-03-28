@@ -14,23 +14,18 @@ const RING_BUFFER_SIZE: usize = 16 * 1024;
 /// Audio event types that can be emitted by the capture system
 #[derive(Debug, Clone)]
 pub enum AudioEvent {
-    /// Recording started successfully
-    Started,
-    
-    /// Recording stopped successfully
-    Stopped,
-    
-    /// Error occurred during recording
-    Error(String),
-    
-    /// Audio data was received
-    Data(AudioData),
-    
-    /// Audio level changed
-    LevelChanged(f32),
-    
-    /// Peak audio level (legacy name for compatibility)
+    /// Audio level update (peak level between 0.0 and 1.0)
     Level(f32),
+    /// Audio data received
+    Data(AudioData),
+    /// Error occurred
+    Error(String),
+    /// Audio capture stopped
+    Stopped,
+    /// Audio capture started
+    Started,
+    /// Legacy name for level changes (for compatibility)
+    LevelChanged(f32),
 }
 
 /// Audio data structure
@@ -387,5 +382,113 @@ impl CaptureManager {
     /// Check if audio capture is active
     pub fn is_active(&self) -> bool {
         self.is_recording
+    }
+}
+
+// Command enum for communicating with the isolated CaptureManager thread
+pub enum CaptureCommand {
+    Start,
+    Stop,
+    SetDevice(cpal::Device),
+    SetPeakCallback(Box<dyn Fn(f32) + Send + Sync + 'static>),
+    SetAudioCallback(Box<dyn Fn(AudioData) + Send + Sync + 'static>),
+    Exit,
+}
+
+// Thread-safe wrapper for CaptureManager
+#[derive(Clone)]
+pub struct ThreadedCaptureManager {
+    command_sender: mpsc::Sender<CaptureCommand>,
+}
+
+impl ThreadedCaptureManager {
+    pub fn create_threaded() -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
+        CaptureManager::create_threaded()
+    }
+    
+    pub fn create_from_capture_manager() -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
+        Self::create_threaded()
+    }
+    
+    pub fn start(&self) -> Result<()> {
+        self.command_sender.blocking_send(CaptureCommand::Start)
+            .map_err(|e| anyhow::anyhow!("Failed to send start command: {}", e))
+    }
+    
+    pub fn stop(&self) -> Result<()> {
+        self.command_sender.blocking_send(CaptureCommand::Stop)
+            .map_err(|e| anyhow::anyhow!("Failed to send stop command: {}", e))
+    }
+    
+    pub fn set_device(&self, device: cpal::Device) -> Result<()> {
+        self.command_sender.blocking_send(CaptureCommand::SetDevice(device))
+            .map_err(|e| anyhow::anyhow!("Failed to send set device command: {}", e))
+    }
+    
+    pub fn on_peak_level<F: Fn(f32) + Send + Sync + 'static>(&self, callback: F) -> Result<()> {
+        self.command_sender.blocking_send(CaptureCommand::SetPeakCallback(Box::new(callback)))
+            .map_err(|e| anyhow::anyhow!("Failed to send peak callback command: {}", e))
+    }
+    
+    pub fn on_audio_data<F: Fn(AudioData) + Send + Sync + 'static>(&self, callback: F) -> Result<()> {
+        self.command_sender.blocking_send(CaptureCommand::SetAudioCallback(Box::new(callback)))
+            .map_err(|e| anyhow::anyhow!("Failed to send audio callback command: {}", e))
+    }
+}
+
+impl Drop for ThreadedCaptureManager {
+    fn drop(&mut self) {
+        // Try to send exit command, but don't panic if it fails
+        let _ = self.command_sender.blocking_send(CaptureCommand::Exit);
+    }
+}
+
+impl CaptureManager {
+    // Create a thread-safe wrapper around CaptureManager
+    pub fn create_threaded() -> Result<(ThreadedCaptureManager, mpsc::Receiver<AudioEvent>)> {
+        let (_event_sender, event_receiver) = mpsc::channel(100);
+        let (cmd_sender, mut cmd_receiver) = mpsc::channel(10);
+        
+        // Create the manager and spawn a thread to manage it
+        std::thread::spawn(move || {
+            // Create manager in this thread
+            match Self::new() {
+                Ok((mut manager, _)) => {
+                    // Main loop for processing commands
+                    while let Some(cmd) = cmd_receiver.blocking_recv() {
+                        match cmd {
+                            CaptureCommand::Start => {
+                                if let Err(e) = manager.start() {
+                                    error!("Failed to start capture: {}", e);
+                                }
+                            },
+                            CaptureCommand::Stop => {
+                                if let Err(e) = manager.stop() {
+                                    error!("Failed to stop capture: {}", e);
+                                }
+                            },
+                            CaptureCommand::SetDevice(device) => {
+                                manager.set_device(device);
+                            },
+                            CaptureCommand::SetPeakCallback(callback) => {
+                                manager.on_peak_level(callback);
+                            },
+                            CaptureCommand::SetAudioCallback(callback) => {
+                                manager.on_audio_data(callback);
+                            },
+                            CaptureCommand::Exit => break,
+                        }
+                    }
+                    
+                    // Clean up when finished
+                    let _ = manager.stop();
+                },
+                Err(e) => {
+                    error!("Failed to create CaptureManager: {}", e);
+                }
+            }
+        });
+        
+        Ok((ThreadedCaptureManager { command_sender: cmd_sender }, event_receiver))
     }
 } 

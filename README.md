@@ -88,6 +88,31 @@ Voice commands can be customized in the settings panel.
 
 This project is actively under development. See [docs/implementation-status.md](./docs/implementation-status.md) for detailed progress information.
 
+## Tauri 2.0 Migration
+
+BestMe has been migrated to Tauri 2.0, bringing significant improvements and modernizations:
+
+### Key Improvements
+
+- **Simplified Architecture**: Cleaner code structure with removal of conditional compilation
+- **Async Commands**: All plugin commands now use async/await for better performance
+- **Improved Plugin System**: More consistent plugin initialization and state management
+- **Enhanced Error Handling**: Better error context and propagation
+
+### Migration Resources
+
+- **Migration Summary**: See [docs/migration-summary.md](./docs/migration-summary.md) for migration details
+- **Testing Plan**: See [docs/testing-plan.md](./docs/testing-plan.md) for validation approach
+- **Optimization Tips**: See [docs/optimization-tips.md](./docs/optimization-tips.md) for performance recommendations
+
+### Linux Development Setup
+
+For Linux development, use the setup script to install required dependencies:
+
+```bash
+./scripts/setup-linux-deps.sh
+```
+
 ## License
 
 [MIT](LICENSE)

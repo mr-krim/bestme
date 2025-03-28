@@ -1,124 +1,137 @@
 #!/bin/bash
-# Setup script for BestMe on Linux/macOS
-# This script installs dependencies and sets up the project
+# Script to set up permissions and environment for BestMe
 
-set -e  # Exit on error
-
-# Terminal colors
+# Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
 BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-echo -e "${BLUE}===================================${NC}"
-echo -e "${GREEN}BestMe Project Setup - Linux/macOS${NC}"
-echo -e "${BLUE}===================================${NC}"
+echo -e "${BLUE}====================================${NC}"
+echo -e "${GREEN}BestMe Development Environment Setup${NC}"
+echo -e "${BLUE}====================================${NC}"
 
-# Check for Node.js
-echo -e "Checking for Node.js..."
-if ! command -v node &> /dev/null; then
-    echo -e "${RED}ERROR: Node.js not found. Please install Node.js from https://nodejs.org/${NC}"
-    echo -e "After installing Node.js, run this script again."
-    exit 1
-fi
+# Navigate to project root
+cd "$(dirname "$0")/.." || { echo "Failed to navigate to project root"; exit 1; }
 
-echo -e "Node.js found: $(node --version)"
-
-# Check for npm
-echo -e "Checking for npm..."
-if ! command -v npm &> /dev/null; then
-    echo -e "${RED}ERROR: npm not found. Please install Node.js from https://nodejs.org/${NC}"
-    echo -e "After installing Node.js, run this script again."
-    exit 1
-fi
-
-echo -e "npm found: $(npm --version)"
-
-# Check for Rust
-echo -e "Checking for Rust..."
-if ! command -v rustc &> /dev/null; then
-    echo -e "${RED}ERROR: Rust not found. Please install Rust from https://rustup.rs/${NC}"
-    echo -e "After installing Rust, run this script again."
-    exit 1
-fi
-
-echo -e "Rust found: $(rustc --version)"
-
-# Check for Cargo
-echo -e "Checking for Cargo..."
-if ! command -v cargo &> /dev/null; then
-    echo -e "${RED}ERROR: Cargo not found. Please install Rust from https://rustup.rs/${NC}"
-    echo -e "After installing Rust, run this script again."
-    exit 1
-fi
-
-echo -e "Cargo found: $(cargo --version)"
-
-# Check for inotify-tools (Linux only)
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    echo -e "Checking for inotify-tools..."
-    if ! command -v inotifywait &> /dev/null; then
-        echo -e "${YELLOW}WARNING: inotify-tools not found. This is needed for refresh_voice.sh${NC}"
-        echo -e "Would you like to install inotify-tools now? (y/n)"
-        read -r answer
-        if [[ "$answer" == "y" ]]; then
-            if command -v apt-get &> /dev/null; then
-                sudo apt-get update
-                sudo apt-get install -y inotify-tools
-            elif command -v yum &> /dev/null; then
-                sudo yum install -y inotify-tools
-            elif command -v dnf &> /dev/null; then
-                sudo dnf install -y inotify-tools
-            elif command -v pacman &> /dev/null; then
-                sudo pacman -S inotify-tools
-            else
-                echo -e "${YELLOW}Could not automatically install inotify-tools.${NC}"
-                echo -e "Please install it manually using your package manager."
-            fi
-        fi
+# Check for required dependencies
+check_dependency() {
+    if ! command -v "$1" &> /dev/null; then
+        echo -e "${YELLOW}Warning: $1 is not installed or not in the PATH${NC}"
+        echo "This may cause issues with development."
+        return 1
     else
-        echo -e "inotify-tools found: $(inotifywait --version | head -n 1)"
+        echo -e "${GREEN}✓ $1 is installed${NC}"
+        return 0
     fi
+}
+
+echo -e "\n${BLUE}Checking for required dependencies...${NC}"
+check_dependency "cargo"
+check_dependency "rustc"
+check_dependency "npm"
+check_dependency "node"
+
+# Check if rust is up to date
+echo -e "\n${BLUE}Checking Rust version...${NC}"
+rustc --version
+echo -e "${YELLOW}Note: Rust 1.70+ is recommended for development${NC}"
+
+# Check if tauri-cli is installed
+if ! cargo install --list | grep -q "tauri-cli"; then
+    echo -e "\n${YELLOW}Warning: tauri-cli is not installed${NC}"
+    read -p "Would you like to install it now? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Installing tauri-cli...${NC}"
+        cargo install tauri-cli
+    else
+        echo -e "${YELLOW}Skipping tauri-cli installation. You will need it to run the app.${NC}"
+    fi
+else
+    echo -e "${GREEN}✓ tauri-cli is installed${NC}"
 fi
 
-# Install Tauri CLI
-echo -e "Installing Tauri CLI..."
-cargo install tauri-cli || {
-    echo -e "${YELLOW}WARNING: Failed to install Tauri CLI. You may need to install it manually.${NC}"
-}
+# Check for platform-specific dependencies
+echo -e "\n${BLUE}Checking platform-specific dependencies...${NC}"
+OS="$(uname -s)"
+case "${OS}" in
+    Linux*)
+        echo "Linux detected, checking for GTK and WebKit dependencies..."
+        
+        # Check for common Linux dependencies
+        MISSING_DEPS=()
+        for dep in "libgtk-3-dev" "libwebkit2gtk-4.0-dev" "libappindicator3-dev" "librsvg2-dev" "patchelf"; do
+            if ! dpkg -s "$dep" &> /dev/null; then
+                MISSING_DEPS+=("$dep")
+            fi
+        done
+        
+        if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
+            echo -e "${YELLOW}Warning: The following dependencies are missing:${NC}"
+            for dep in "${MISSING_DEPS[@]}"; do
+                echo "  - $dep"
+            done
+            echo -e "${YELLOW}You may need to install them to build the app.${NC}"
+            echo "On Ubuntu/Debian, you can install them with:"
+            echo "sudo apt update && sudo apt install ${MISSING_DEPS[*]}"
+        else
+            echo -e "${GREEN}✓ All required Linux dependencies are installed${NC}"
+        fi
+        ;;
+    Darwin*)
+        echo "macOS detected, checking for Xcode Command Line Tools..."
+        if ! xcode-select -p &> /dev/null; then
+            echo -e "${YELLOW}Warning: Xcode Command Line Tools not found${NC}"
+            echo "You can install them by running: xcode-select --install"
+        else
+            echo -e "${GREEN}✓ Xcode Command Line Tools are installed${NC}"
+        fi
+        ;;
+    CYGWIN*|MINGW*|MSYS*|Windows*)
+        echo "Windows detected. Ensure you have the following installed:"
+        echo "  - Visual Studio Build Tools"
+        echo "  - WebView2 Runtime"
+        echo -e "${YELLOW}Please refer to the Tauri documentation for Windows-specific setup.${NC}"
+        ;;
+    *)
+        echo -e "${YELLOW}Unknown operating system. Please ensure you have the required dependencies for Tauri.${NC}"
+        ;;
+esac
 
-# Install Node.js dependencies
-echo -e "Installing Node.js dependencies..."
-npm install || {
-    echo -e "${RED}ERROR: Failed to install Node.js dependencies.${NC}"
-    exit 1
-}
+# Set up permissions for scripts
+echo -e "\n${BLUE}Setting up script permissions...${NC}"
+chmod +x scripts/run_default.sh scripts/run_voice.sh scripts/run_debug.sh scripts/run_dev.sh scripts/test_voice_commands.sh scripts/refresh_voice.sh
 
-echo -e "Dependencies installed successfully."
+# Set up environment variables
+echo -e "\n${BLUE}Setting up environment variables...${NC}"
+ENV_FILE=".env"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Creating default .env file..."
+    cat > "$ENV_FILE" << EOF
+# BestMe Environment Variables
+RUST_LOG=info
+EOF
+    echo -e "${GREEN}✓ Created .env file${NC}"
+else
+    echo -e "${GREEN}✓ Using existing .env file${NC}"
+fi
 
-# Set up development environment
-echo -e "Setting up development environment..."
+# Install npm dependencies
+echo -e "\n${BLUE}Installing frontend dependencies...${NC}"
+if [ ! -d "ui/node_modules" ]; then
+    echo "Installing npm packages..."
+    cd ui && npm install && cd ..
+    echo -e "${GREEN}✓ Frontend dependencies installed${NC}"
+else
+    echo -e "${GREEN}✓ Frontend dependencies already installed${NC}"
+fi
 
-# Install Rust analyzer
-rustup component add rust-analyzer || {
-    echo -e "${YELLOW}WARNING: Failed to install rust-analyzer. You might want to install it manually.${NC}"
-}
-
-# Set up script permissions
-echo -e "Setting up script permissions..."
-chmod +x run_default.sh run_voice.sh run_debug.sh run_dev.sh test_voice_commands.sh refresh_voice.sh
-
-echo -e "${BLUE}===================================${NC}"
-echo -e "${GREEN}Setup complete!${NC}"
-echo -e "${BLUE}===================================${NC}"
-echo
-echo -e "You can now run BestMe using one of the following commands:"
-echo
-echo -e "  ${GREEN}./run_default.sh${NC} - Run with default settings"
-echo -e "  ${GREEN}./run_voice.sh${NC}   - Run with voice commands enabled"
-echo -e "  ${GREEN}./run_debug.sh${NC}   - Run in debug mode"
-echo -e "  ${GREEN}./refresh_voice.sh${NC} - Auto-rebuild when voice command files change"
+echo -e "\n${GREEN}Setup complete! You can now run the application:${NC}"
+echo -e "  ${GREEN}./scripts/run_default.sh${NC} - Run with default settings"
+echo -e "  ${GREEN}./scripts/run_voice.sh${NC}   - Run with voice commands enabled"
+echo -e "  ${GREEN}./scripts/run_debug.sh${NC}   - Run in debug mode"
+echo -e "  ${GREEN}./scripts/refresh_voice.sh${NC} - Auto-rebuild when voice command files change"
 echo
 echo -e "For more information, see README.md and SCRIPTS.md"
 echo 

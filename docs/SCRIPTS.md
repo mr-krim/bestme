@@ -6,78 +6,78 @@ This directory contains scripts to help you run BestMe with different configurat
 
 ### Linux/macOS
 
-#### scripts_install.sh
+#### scripts/scripts_install.sh
 - Checks for required dependencies (Node.js, Rust, Cargo)
 - Installs inotify-tools if needed and available
 - Sets up script permissions automatically
-- Usage: `./scripts_install.sh`
+- Usage: `./scripts/scripts_install.sh`
 
 ### Windows
 
-#### scripts_install.bat
+#### scripts/scripts_install.bat
 - Checks for required dependencies (Node.js, Rust, Cargo)
 - Installs Tauri CLI and other development tools
 - Sets up batch file attributes
-- Usage: `scripts_install.bat`
+- Usage: `scripts/scripts_install.bat`
 
 ## Available Scripts
 
 ### Linux/macOS Scripts
 
-#### run_default.sh
+#### scripts/run_default.sh
 - Runs BestMe with default settings
 - Voice commands are disabled
 - Standard info logging level
-- Usage: `./run_default.sh`
+- Usage: `./scripts/run_default.sh`
 
-#### run_voice.sh
+#### scripts/run_voice.sh
 - Runs BestMe with voice commands enabled
 - Standard info logging level
-- Usage: `./run_voice.sh`
+- Usage: `./scripts/run_voice.sh`
 
-#### run_debug.sh
+#### scripts/run_debug.sh
 - Runs BestMe in debug mode with verbose logging
 - Voice commands are enabled by default (can be disabled by commenting the export line)
 - Detailed debug and trace logging for voice commands and transcription
-- Usage: `./run_debug.sh`
+- Usage: `./scripts/run_debug.sh`
 
-#### run_dev.sh
+#### scripts/run_dev.sh
 - Main development script (may be customized from original setup)
-- Usage: `./run_dev.sh`
+- Usage: `./scripts/run_dev.sh`
 
-#### refresh_voice.sh
+#### scripts/refresh_voice.sh
 - Watches for changes in voice command related files and automatically rebuilds
-- Requires inotify-tools to be installed
+- Requires inotify-tools (Linux) or fswatch (macOS) to be installed
 - Great for active development of voice command features
-- Usage: `./refresh_voice.sh`
+- Usage: `./scripts/refresh_voice.sh`
 
-#### test_voice_commands.sh
+#### scripts/test_voice_commands.sh
 - Interactive test utility for voice command functionality
 - Provides options to run unit tests or simulate command detection
 - Helpful for debugging voice command detection logic
-- Usage: `./test_voice_commands.sh`
+- Usage: `./scripts/test_voice_commands.sh`
 
 ### Windows Scripts
 
-#### run_default.bat
+#### scripts/run_default.bat
 - Windows equivalent of run_default.sh
-- Usage: `run_default.bat`
+- Usage: `scripts/run_default.bat`
 
-#### run_voice.bat
+#### scripts/run_voice.bat
 - Windows equivalent of run_voice.sh
-- Usage: `run_voice.bat`
+- Usage: `scripts/run_voice.bat`
 
-#### run_debug.bat
+#### scripts/run_debug.bat
 - Windows equivalent of run_debug.sh
-- Usage: `run_debug.bat`
+- Usage: `scripts/run_debug.bat`
 
-#### run_dev.bat
+#### scripts/run_dev.bat
 - Windows equivalent of run_dev.sh
-- Usage: `run_dev.bat`
+- Usage: `scripts/run_dev.bat`
 
-#### test_voice_commands.bat
+#### scripts/test_voice_commands.bat
 - Windows equivalent of test_voice_commands.sh
-- Usage: `test_voice_commands.bat`
+- Usage: `scripts/test_voice_commands.bat`
 
 ## Setting Up Permissions
 
@@ -85,14 +85,14 @@ This directory contains scripts to help you run BestMe with different configurat
 Before running the scripts, you need to set executable permissions:
 
 ```bash
-chmod +x run_default.sh run_voice.sh run_debug.sh run_dev.sh refresh_voice.sh test_voice_commands.sh
+chmod +x scripts/run_default.sh scripts/run_voice.sh scripts/run_debug.sh scripts/run_dev.sh scripts/refresh_voice.sh scripts/test_voice_commands.sh
 ```
 
 Or run the installation script which will set permissions automatically:
 
 ```bash
-chmod +x scripts_install.sh
-./scripts_install.sh
+chmod +x scripts/scripts_install.sh
+./scripts/scripts_install.sh
 ```
 
 ### Windows
@@ -107,10 +107,15 @@ Windows batch files (.bat) don't require special permissions to run. However, yo
 
 ## Dependencies
 
-- For `refresh_voice.sh`, you need to install inotify-tools (Linux only):
-  ```bash
-  sudo apt-get install inotify-tools
-  ```
+- For `refresh_voice.sh`, you need to install:
+  - On Linux: inotify-tools
+    ```bash
+    sudo apt-get install inotify-tools
+    ```
+  - On macOS: fswatch
+    ```bash
+    brew install fswatch
+    ```
 
 ## Troubleshooting
 
@@ -120,7 +125,9 @@ Common issues:
 1. Missing Node.js/npm - Install Node.js and npm
 2. Missing Rust/Cargo - Install Rust and Cargo
 3. Permission denied (Linux/macOS) - Run the chmod command above
-4. For `refresh_voice.sh`: "Command not found: inotifywait" - Install inotify-tools
+4. For `refresh_voice.sh`: 
+   - Linux: "Command not found: inotifywait" - Install inotify-tools
+   - macOS: "Command not found: fswatch" - Install fswatch
 
 ## Environment Variables
 

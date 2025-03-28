@@ -45,20 +45,3 @@ if [ $? -ne 0 ]; then
     cd ../src-tauri
     cargo run --features dev,verbose
 fi
-
-# Build and run the app with debug logging
-echo "Building and starting BestMe with debug logging"
-
-# Set environment variables for debug logging
-export RUST_LOG=debug
-
-# Change to the src-tauri directory
-cd "$(dirname "$0")/src-tauri" || { echo "Failed to navigate to src-tauri directory"; exit 1; }
-
-# Build the application in debug mode
-echo "Building Tauri application..."
-cargo build || { echo "Build failed"; exit 1; }
-
-# Run the application
-echo "Starting application with debug logging..."
-cargo tauri dev 

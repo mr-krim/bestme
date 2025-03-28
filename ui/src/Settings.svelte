@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/tauri';
+  import { invoke } from '@tauri-apps/api';
   import { listen } from '@tauri-apps/api/event';
   
   // Settings state
@@ -39,15 +39,15 @@
   onMount(async () => {
     try {
       // Get devices and models
-      audioDevices = await invoke('get_audio_devices');
-      whisperModels = await invoke('get_whisper_models');
-      modelInfo = await invoke('get_model_download_info');
+      audioDevices = await invoke.audio.get_audio_devices;
+      whisperModels = await invoke.transcribe.get_whisper_models;
+      modelInfo = await invoke.transcribe.get_model_download_info;
       
       // Get language options
-      languages = await invoke('get_supported_languages');
+      languages = await invoke.transcribe.get_supported_languages;
       
       // Load saved settings
-      const settings = await invoke('get_settings');
+      const settings = await invoke.config.get_settings;
       if (settings) {
         selectedDevice = settings.device_name || (audioDevices.length > 0 ? audioDevices[0] : '');
         selectedModel = settings.model_name || 'small';
@@ -106,7 +106,7 @@
     isCheckingModels = true;
     try {
       // Check progress of any ongoing downloads
-      const progress: any = await invoke('plugin:transcribe:get_download_progress');
+      const progress: any = await invoke.transcribe.get_download_progress;
       if (progress) {
         const [model, percentage] = progress;
         downloadingModel = model;
@@ -145,7 +145,7 @@
     
     downloadError = '';
     try {
-      await invoke('plugin:transcribe:download_model_command', { modelSize: model });
+      await invoke.transcribe.download_model_command, { modelSize: model };
       // The actual progress updates will come through the event listener
     } catch (error) {
       console.error(`Failed to download model ${model}:`, error);
@@ -162,7 +162,7 @@
       saveMessage = '';
       
       // Save settings to backend
-      await invoke('save_all_settings', {
+      await invoke.config.save_all_settings, {
         // Basic settings
         deviceName: selectedDevice,
         modelName: selectedModel,

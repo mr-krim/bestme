@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/tauri';
+  import { invoke } from '@tauri-apps/api';
   import { onMount, onDestroy } from 'svelte';
   import { writable } from 'svelte/store';
   import Tabs from './Tabs.svelte';
@@ -37,7 +37,7 @@
   onMount(async () => {
     try {
       // Load all settings from the backend
-      const allSettings = await invoke('get_settings');
+      const allSettings = await invoke.config.get_settings);
       
       // Update local store
       settings.set(allSettings);
@@ -65,7 +65,7 @@
         confidence: voiceCommandConfidence
       };
       
-      await invoke('save_all_settings', {
+      await invoke.config.save_all_settings, {
         voiceCommands: voiceCommandSettings
       });
       
