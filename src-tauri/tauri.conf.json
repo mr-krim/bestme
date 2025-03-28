@@ -1,32 +1,57 @@
 {
-  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/v1/core/tauri-config-schema/schema.json",
+  "$schema": "https://cdn.jsdelivr.net/gh/tauri-apps/tauri@55d373/core/tauri-config-schema/schema.json",
+  "identifier": "com.bestme.app",
   "build": {
-    "distDir": "../ui/dist",
-    "devPath": "http://localhost:3000",
-    "beforeDevCommand": "cd .. && npm run dev",
-    "beforeBuildCommand": "cd .. && npm run build"
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../assets"
   },
-  "package": {
-    "productName": "BestMe",
-    "version": "0.1.0"
-  },
-  "tauri": {
-    "bundle": {
-      "identifier": "com.bestme.app",
-      "active": false
-    },
-    "windows": [
-      {
-        "title": "BestMe",
-        "width": 800,
-        "height": 600
-      }
-    ],
+  "app": {
     "security": {
       "csp": null
     },
-    "allowlist": {
+    "windows": [
+      {
+        "fullscreen": false,
+        "resizable": true,
+        "title": "BestMe - Speech to Text",
+        "width": 960,
+        "height": 720
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "BestMe Team",
+    "category": "Productivity",
+    "shortDescription": "Speech-to-text application with AI voice commands",
+    "longDescription": "BestMe is a modern speech-to-text application powered by AI.",
+    "copyright": "© 2025 BestMe Team"
+  },
+  "plugins": {
+    "clipboard": {
       "all": true
+    },
+    "dialog": {
+      "all": true
+    },
+    "fs": {
+      "all": true
+    },
+    "notification": {
+      "all": true
+    },
+    "os": {
+      "all": true
+    },
+    "process": {
+      "all": true
+    },
+    "shell": {
+      "all": true,
+      "open": true
     }
   }
 } 
