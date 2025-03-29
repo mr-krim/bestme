@@ -27,6 +27,28 @@ This document provides an overview of the Windows 11 testing process for the Bes
    cargo run
    ```
 
+## Running in GUI Mode
+
+To run the application in GUI mode:
+
+1. **Using the included scripts**:
+   ```powershell
+   # Using the batch file
+   .\run-gui-mode.bat
+   
+   # Using PowerShell
+   .\run-gui-mode.ps1
+   ```
+
+2. **Or with command-line parameters**:
+   ```powershell
+   # Basic GUI mode
+   .\bestme.exe --gui
+   
+   # With verbose logging
+   .\bestme.exe --gui --verbose
+   ```
+
 ## Windows-Specific Features
 
 - Enhanced audio device detection for Windows systems
@@ -74,6 +96,16 @@ cargo tauri build
 ```
 
 Output will be located in `target\release\bundle\`.
+
+## Troubleshooting GUI Mode
+
+If the application's GUI window doesn't appear or closes immediately:
+
+1. Run with verbose logging: `.\bestme.exe --gui --verbose`
+2. Check the logs in: `%APPDATA%\bestme\logs\`
+3. Try running the application as administrator
+4. Make sure your system meets the minimum requirements
+5. Verify that WebView2 is properly installed
 
 ## Contact
 

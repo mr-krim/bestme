@@ -32,6 +32,8 @@ cp "./target/release/${SOURCE_EXE}" "${OUTPUT_DIR}/${EXE_NAME}"
 [ -f "./README-WINDOWS.md" ] && cp "./README-WINDOWS.md" "${OUTPUT_DIR}/README.txt"
 [ -f "./docs/windows-testing-guide.md" ] && cp "./docs/windows-testing-guide.md" "${OUTPUT_DIR}/TESTING-GUIDE.txt"
 [ -f "./LICENSE.txt" ] && cp "./LICENSE.txt" "${OUTPUT_DIR}/LICENSE.txt"
+[ -f "./run-gui-mode.bat" ] && cp "./run-gui-mode.bat" "${OUTPUT_DIR}/run-gui-mode.bat"
+[ -f "./run-gui-mode.ps1" ] && cp "./run-gui-mode.ps1" "${OUTPUT_DIR}/run-gui-mode.ps1"
 
 # Create version info
 echo "Creating version info..."

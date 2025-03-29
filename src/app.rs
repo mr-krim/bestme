@@ -566,4 +566,34 @@ impl App {
         info!("Async tasks shutdown complete");
         Ok(())
     }
+
+    /// Run the application in GUI mode
+    pub fn run_gui(&mut self) -> Result<()> {
+        let config = self.config_manager.get_config();
+        
+        // Display application info
+        self.display_info(config)?;
+        
+        // Display available audio devices
+        self.list_audio_devices()?;
+        
+        info!("Starting in GUI mode (explicit)");
+        
+        // Initialize GUI
+        let mut gui_manager = Gui::new(
+            Arc::new(parking_lot::Mutex::new(self.config_manager.clone())),
+            Arc::new(parking_lot::Mutex::new(self.device_manager.clone())),
+        );
+        
+        gui_manager.initialize()?;
+        
+        // Store and run GUI
+        self.gui_manager = Some(gui_manager);
+        
+        if let Some(gui) = &mut self.gui_manager {
+            gui.run()?;
+        }
+        
+        Ok(())
+    }
 } 
