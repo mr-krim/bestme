@@ -33,39 +33,43 @@ impl DeviceManager {
     pub fn refresh_devices(&mut self) -> Result<()> {
         self.input_devices.clear();
         
-        // Use platform-specific implementation for Windows
+        // Platform-specific implementations
         #[cfg(target_os = "windows")]
         {
-            return self.refresh_devices_windows();
+            self.refresh_devices_windows()?;
+            return Ok(());
         }
         
-        // Default implementation for other platforms
-        let host = cpal::default_host();
-        
-        // Try to get the default input device
-        if let Some(default_device) = host.default_input_device() {
-            let device_name = default_device.name().context("Could not get default device name")?;
-            self.default_input_device = Some(device_name.clone());
-            self.input_devices.insert(device_name.clone(), device_name);
-        }
-        
-        // Try to get all input devices
-        match host.input_devices() {
-            Ok(devices) => {
-                for device in devices {
-                    if let Ok(name) = device.name() {
-                        self.input_devices.insert(name.clone(), name);
-                    }
-                }
-            },
-            Err(e) => {
-                info!("Could not get input devices: {}", e);
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Default implementation for non-Windows platforms
+            let host = cpal::default_host();
+            
+            // Try to get the default input device
+            if let Some(default_device) = host.default_input_device() {
+                let device_name = default_device.name().context("Could not get default device name")?;
+                self.default_input_device = Some(device_name.clone());
+                self.input_devices.insert(device_name.clone(), device_name);
             }
-        };
-        
-        // If no devices found and we're in a headless environment like WSL, add a mock device
-        if self.input_devices.is_empty() && cfg!(target_os = "linux") {
-            self.add_mock_device_for_testing();
+            
+            // Try to get all input devices
+            match host.input_devices() {
+                Ok(devices) => {
+                    for device in devices {
+                        if let Ok(name) = device.name() {
+                            self.input_devices.insert(name.clone(), name);
+                        }
+                    }
+                },
+                Err(e) => {
+                    info!("Could not get input devices: {}", e);
+                }
+            };
+            
+            // If no devices found and we're in a headless environment like WSL, add a mock device
+            if self.input_devices.is_empty() && cfg!(target_os = "linux") {
+                self.add_mock_device_for_testing();
+            }
         }
         
         Ok(())

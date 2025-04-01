@@ -11,6 +11,12 @@ use crate::config::ConfigManager;
 
 /// Initialize and run the application
 pub fn run() -> Result<()> {
+    // Default to console mode
+    run_with_options(false)
+}
+
+/// Initialize and run the application with specific options
+pub fn run_with_options(use_gui: bool) -> Result<()> {
     info!("Initializing BestMe application");
     
     // Initialize configuration
@@ -25,9 +31,15 @@ pub fn run() -> Result<()> {
     // Initialize application
     let mut app = App::new(config_manager)?;
     
-    // Run the application
+    // Run the application with the specified mode
     info!("Running BestMe application");
-    app.run()?;
+    if use_gui {
+        info!("Using GUI mode");
+        app.run_gui()?;
+    } else {
+        info!("Using console mode");
+        app.run()?;
+    }
     
     info!("BestMe application completed successfully");
     Ok(())

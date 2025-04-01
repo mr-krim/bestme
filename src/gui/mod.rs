@@ -55,6 +55,32 @@ impl Gui {
     /// Run the GUI message loop
     pub fn run(&mut self) -> Result<()> {
         info!("Running GUI message loop");
+        
+        // Show the main window
+        self.show_window()?;
+        
+        #[cfg(target_os = "windows")]
+        {
+            info!("Using Windows-specific GUI loop");
+            
+            // Create a basic window message loop to keep the application running
+            // This will be replaced with proper Tauri integration in the future
+            use std::time::Duration;
+            use std::thread::sleep;
+            
+            // Keep the application running until manually closed
+            // In a real implementation, this would use actual Windows message loop
+            let mut running = true;
+            while running {
+                // Process any pending events
+                // For now, just sleep to avoid consuming CPU
+                sleep(Duration::from_millis(100));
+                
+                // TODO: Check for exit condition
+                // This is a placeholder - in a real app we would check for window close events
+            }
+        }
+        
         // Will be implemented with Tauri integration
         Ok(())
     }
