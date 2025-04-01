@@ -29,11 +29,13 @@ echo "Copying application files..."
 cp "./target/release/${SOURCE_EXE}" "${OUTPUT_DIR}/${EXE_NAME}"
 [ -f "./settings.cfg" ] && cp "./settings.cfg" "${OUTPUT_DIR}/settings.cfg"
 [ -d "./assets" ] && cp -r "./assets/." "${OUTPUT_DIR}/assets/"
+[ -d "./config" ] && cp -r "./config" "${OUTPUT_DIR}/config"
 [ -f "./README-WINDOWS.md" ] && cp "./README-WINDOWS.md" "${OUTPUT_DIR}/README.txt"
 [ -f "./docs/windows-testing-guide.md" ] && cp "./docs/windows-testing-guide.md" "${OUTPUT_DIR}/TESTING-GUIDE.txt"
 [ -f "./LICENSE.txt" ] && cp "./LICENSE.txt" "${OUTPUT_DIR}/LICENSE.txt"
-[ -f "./run-gui-mode.bat" ] && cp "./run-gui-mode.bat" "${OUTPUT_DIR}/run-gui-mode.bat"
-[ -f "./run-gui-mode.ps1" ] && cp "./run-gui-mode.ps1" "${OUTPUT_DIR}/run-gui-mode.ps1"
+# Copy GUI scripts from scripts folder
+[ -f "./scripts/run-gui-mode.bat" ] && cp "./scripts/run-gui-mode.bat" "${OUTPUT_DIR}/run-gui-mode.bat"
+[ -f "./scripts/run-gui-mode.ps1" ] && cp "./scripts/run-gui-mode.ps1" "${OUTPUT_DIR}/run-gui-mode.ps1"
 
 # Create version info
 echo "Creating version info..."
@@ -78,7 +80,10 @@ Contents:
 - bestme.exe - Main application executable
 - run-bestme.bat - Batch script to launch the application
 - run-bestme.ps1 - PowerShell script to launch the application
+- run-gui-mode.bat - Batch script to launch the GUI mode
+- run-gui-mode.ps1 - PowerShell script to launch the GUI mode
 - assets/ - Application assets and resources
+- config/ - Application configuration files
 - settings.cfg - Default configuration
 - TESTING-GUIDE.txt - Detailed testing instructions
 - LICENSE.txt - License information

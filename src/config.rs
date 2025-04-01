@@ -196,8 +196,7 @@ impl ConfigManager {
         info!("Config directory: {:?}", config_dir);
         info!("Config file: {:?}", config_file);
         
-        // Check for settings.cfg in the current directory
-        let mut settings_file = None;
+        // Check for config.json in the application's config directory
         let current_dir = match std::env::current_dir() {
             Ok(dir) => {
                 info!("Current directory: {:?}", dir);
@@ -209,7 +208,22 @@ impl ConfigManager {
             }
         };
         
-        if let Some(dir) = current_dir {
+        // Try to load config from the app's config directory first
+        let mut app_config_file = None;
+        if let Some(dir) = &current_dir {
+            let app_config_path = dir.join("config").join("config.json");
+            info!("Looking for config.json at: {:?}", app_config_path);
+            if app_config_path.exists() {
+                info!("Found config.json in app directory: {:?}", app_config_path);
+                app_config_file = Some(app_config_path);
+            } else {
+                info!("Config file not found at {:?}", app_config_path);
+            }
+        }
+        
+        // Check for settings.cfg in the current directory
+        let mut settings_file = None;
+        if let Some(dir) = &current_dir {
             let settings_path = dir.join("settings.cfg");
             info!("Looking for settings.cfg at: {:?}", settings_path);
             if settings_path.exists() {
@@ -228,8 +242,26 @@ impl ConfigManager {
         }
         
         // Load or create configuration
-        let mut config = if config_file.exists() {
-            // Load existing configuration
+        let mut config = if let Some(app_config) = &app_config_file {
+            // Load from application config directory first
+            info!("Loading configuration from app directory: {:?}", app_config);
+            let config_str = match fs::read_to_string(app_config) {
+                Ok(str) => str,
+                Err(e) => {
+                    error!("Failed to read app configuration file: {}", e);
+                    return Err(anyhow::anyhow!("Failed to read app configuration file: {}", e));
+                }
+            };
+            
+            match serde_json::from_str(&config_str) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    error!("Failed to parse app configuration file: {}", e);
+                    return Err(anyhow::anyhow!("Failed to parse app configuration file: {}", e));
+                }
+            }
+        } else if config_file.exists() {
+            // Try loading from user config directory next
             info!("Loading existing configuration from: {:?}", config_file);
             let config_str = match fs::read_to_string(&config_file) {
                 Ok(str) => str,

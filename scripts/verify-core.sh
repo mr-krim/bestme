@@ -129,10 +129,13 @@ fi
 echo -e "\n${YELLOW}=== Config File Verification ===${NC}"
 
 # Check configuration files
-if [ -f "config.json" ]; then
+if [ -f "config/config.json" ]; then
+    report_test "Config file exists" 0
+elif [ -f "config.json" ]; then
+    warn "Config file location" "config.json found in root directory; should be moved to config/ directory"
     report_test "Config file exists" 0
 else
-    report_test "Config file exists" 1 "config.json not found"
+    report_test "Config file exists" 1 "config.json not found in config/ or root directory"
 fi
 
 if [ -f "settings.cfg" ]; then
@@ -151,7 +154,10 @@ else
 fi
 
 # Check package.json
-if grep -q "tauri" package.json; then
+if [ -f "ui/package.json" ] && grep -q "tauri" "ui/package.json"; then
+    report_test "Tauri in package.json" 0
+elif [ -f "package.json" ] && grep -q "tauri" "package.json"; then
+    warn "package.json location" "package.json found in root directory; should be moved to ui/ directory"
     report_test "Tauri in package.json" 0
 else
     warn "Tauri in package.json" "Tauri dependency might be missing in package.json"

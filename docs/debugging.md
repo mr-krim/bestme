@@ -35,10 +35,13 @@ For easier debugging, use the provided scripts in the `scripts/` directory:
 
 ## Configuration File Troubleshooting
 
-BestMe uses two configuration files:
+BestMe uses two primary configuration files:
 
-1. **~/.config/bestme/config.json**: The primary configuration file.
-2. **settings.cfg**: A secondary configuration file in the application directory.
+1. **~/.config/bestme/config.json**: The user-specific configuration file.
+2. **config/config.json**: The application directory configuration file.
+3. **settings.cfg**: A secondary configuration file in the application directory.
+
+The application will first look for config.json in the application's config directory, and if not found, will use the one in the user's home directory. If neither exists, a default configuration will be created in the user's home directory.
 
 ### Common Configuration Issues
 
@@ -67,6 +70,18 @@ RUST_LOG=info cargo run
 Look for logs like:
 
 ```
+[INFO bestme::config] Current directory: "/home/user/bestme"
+[INFO bestme::config] Looking for config.json at: "/home/user/bestme/config/config.json"
+[INFO bestme::config] Config directory: "/home/user/.config/bestme"
+[INFO bestme::config] Loading configuration from app directory: "/home/user/bestme/config/config.json"
+```
+
+Or if using the user's home directory configuration:
+
+```
+[INFO bestme::config] Current directory: "/home/user/bestme"
+[INFO bestme::config] Looking for config.json at: "/home/user/bestme/config/config.json"
+[INFO bestme::config] Config file not found at "/home/user/bestme/config/config.json"
 [INFO bestme::config] Config directory: "/home/user/.config/bestme"
 [INFO bestme::config] Loading existing configuration from: "/home/user/.config/bestme/config.json"
 ```
