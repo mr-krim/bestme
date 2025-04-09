@@ -5,6 +5,7 @@ pub mod window;
 
 use anyhow::Result;
 use log::info;
+use log::warn;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -34,7 +35,45 @@ impl Gui {
     /// Initialize the GUI
     pub fn initialize(&mut self) -> Result<()> {
         info!("Initializing GUI");
-        // Will be implemented with Tauri integration
+        
+        #[cfg(target_os = "windows")]
+        {
+            // On Windows, we'll pre-register the window classes for our components
+            let instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleA(None).unwrap() };
+            
+            // Initialize tray icon
+            let tray = crate::gui::tray::SystemTray::new(
+                self.config_manager.clone(),
+                self.device_manager.clone()
+            )?;
+            
+            // Keep the tray icon reference (we might use this later)
+            let _tray = tray;
+            
+            info!("Windows GUI components initialized");
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            // macOS specific initialization
+            info!("Initializing macOS GUI components");
+            // This will be implemented with Cocoa/AppKit bindings or Tauri
+            
+            // For now, log that this is not fully implemented
+            warn!("macOS GUI initialization is a placeholder - not fully implemented");
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            // Linux specific initialization
+            info!("Initializing Linux GUI components");
+            // This will be implemented with GTK/Qt bindings or Tauri
+            
+            // For now, log that this is not fully implemented
+            warn!("Linux GUI initialization is a placeholder - not fully implemented");
+        }
+        
+        // Will be expanded with Tauri integration
         Ok(())
     }
 
@@ -63,22 +102,53 @@ impl Gui {
         {
             info!("Using Windows-specific GUI loop");
             
-            // Create a basic window message loop to keep the application running
-            // This will be replaced with proper Tauri integration in the future
-            use std::time::Duration;
-            use std::thread::sleep;
+            // Create a Windows transcription window
+            let config_manager_clone = self.config_manager.clone();
+            let device_manager_clone = self.device_manager.clone();
             
-            // Keep the application running until manually closed
-            // In a real implementation, this would use actual Windows message loop
-            let mut running = true;
-            while running {
-                // Process any pending events
-                // For now, just sleep to avoid consuming CPU
-                sleep(Duration::from_millis(100));
-                
-                // TODO: Check for exit condition
-                // This is a placeholder - in a real app we would check for window close events
+            // Initialize and show the transcription window
+            let mut window = crate::gui::window::TranscriptionWindow::new(
+                config_manager_clone,
+                Arc::new(device_manager_clone.lock().clone())
+            )?;
+            
+            // Show the window
+            window.show()?;
+            
+            // Windows message pump using winapi
+            use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageA, GetMessageA, TranslateMessage, MSG};
+            
+            unsafe {
+                let mut msg = MSG::default();
+                while GetMessageA(&mut msg, None, 0, 0).as_bool() {
+                    TranslateMessage(&msg);
+                    DispatchMessageA(&msg);
+                }
             }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            info!("Using macOS-specific GUI loop");
+            
+            // For now, we'll just log that macOS GUI is not fully implemented
+            // In a future update, this would be replaced with actual macOS GUI code
+            // using Cocoa/AppKit bindings or Tauri
+            
+            warn!("macOS native GUI not fully implemented yet. Falling back to console mode.");
+            std::thread::sleep(std::time::Duration::from_secs(10));
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            info!("Using Linux-specific GUI loop");
+            
+            // For now, we'll just log that Linux GUI is not fully implemented
+            // In a future update, this would be replaced with actual Linux GUI code
+            // using GTK/QT bindings or Tauri
+            
+            warn!("Linux native GUI not fully implemented yet. Falling back to console mode.");
+            std::thread::sleep(std::time::Duration::from_secs(10));
         }
         
         // Will be implemented with Tauri integration

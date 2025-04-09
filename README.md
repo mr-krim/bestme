@@ -1,128 +1,116 @@
-# BestMe - Voice-Enabled Transcription App
+# BestMe - Modern Speech-to-Text Application
 
-BestMe is a cross-platform desktop application for real-time audio transcription with voice command support. 
-The app uses Whisper AI for highly accurate transcription and includes a voice command system for hands-free control.
+BestMe is a cross-platform speech-to-text application powered by AI, designed to work on Windows, macOS, and Linux.
 
 ## Features
 
-- **Real-time transcription** using OpenAI's Whisper model (offline)
-- **Voice command system** for hands-free control
-- **Multi-language support** with over 30 languages
-- **Translation capabilities** to convert non-English speech to English
-- **Customizable settings** for transcription accuracy and performance
+- Real-time speech transcription
+- Multiple language support
+- Voice command capabilities
+- System tray integration
+- Configurable speech recognition settings
 
-## Quick Start
+## Requirements
 
-### Linux/macOS
+- Rust 1.70 or newer
+- Cargo package manager
+- Platform-specific dependencies (see below)
 
-```bash
-# Run with default settings (voice commands disabled)
-./scripts/run_default.sh
-
-# Run with voice commands enabled
-./scripts/run_voice.sh
-
-# Run in debug mode with verbose logging
-./scripts/run_debug.sh
-```
+## Platform-Specific Setup
 
 ### Windows
+- Windows 10 or newer
+- Microsoft Visual C++ Build Tools
+- Git for Windows
 
-```batch
-# Run with default settings (voice commands disabled)
-scripts\run_default.bat
+### macOS
+- macOS 10.15 (Catalina) or newer
+- Xcode Command Line Tools
+- Homebrew (recommended for dependencies)
 
-# Run with voice commands enabled
-scripts\run_voice.bat
+### Linux
+- A modern Linux distribution (Ubuntu 20.04+, Fedora 36+, etc.)
+- GCC or Clang
+- X11 or Wayland development libraries
+- PulseAudio or ALSA development libraries
 
-# Run in debug mode with verbose logging
-scripts\run_debug.bat
+## Building from Source
+
+### Clone the repository
+```bash
+git clone https://github.com/your-organization/bestme.git
+cd bestme
 ```
 
-## Testing Voice Commands
+### Building and Running on Windows
 
-### Linux/macOS
+```powershell
+# Debug build and run
+cargo run
+
+# Or use the provided script
+.\scripts\run-gui-mode.ps1
+
+# Release build
+cargo build --release
+```
+
+### Building and Running on macOS
 
 ```bash
-# Interactive test utility for voice commands
-./scripts/test_voice_commands.sh
+# Install dependencies
+brew install pkg-config
+
+# Debug build and run
+cargo run
+
+# Release build
+cargo build --release
 ```
 
-### Windows
-
-```batch
-# Interactive test utility for voice commands
-scripts\test_voice_commands.bat
-```
-
-## Development
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) (v14 or later)
-- [Rust](https://www.rust-lang.org/tools/install) (stable)
-- [Tauri CLI](https://tauri.app/v1/guides/getting-started/installation)
-
-### Development Scripts
-
-For developers working on the voice command system, we provide helpful scripts:
-
-- **scripts/refresh_voice.sh** - Automatically rebuilds when voice command files change (Linux/macOS only)
-- **scripts/run_debug.sh/bat** - Runs with verbose logging for debugging
-
-See [docs/SCRIPTS.md](./docs/SCRIPTS.md) for detailed information on all available scripts.
-
-## Voice Commands
-
-The following voice commands are currently supported:
-
-- "BestMe, start recording" - Starts audio recording and transcription
-- "BestMe, stop recording" - Stops recording
-- "BestMe, save transcript" - Saves the current transcript to a file
-- "BestMe, clear transcript" - Clears the current transcript
-- "BestMe, switch to dark mode" - Toggles dark/light theme
-
-Voice commands can be customized in the settings panel.
-
-## Project Status
-
-This project is actively under development. See [docs/implementation-status.md](./docs/implementation-status.md) for detailed progress information.
-
-## Tauri 2.0 Migration
-
-BestMe has been migrated to Tauri 2.0, bringing significant improvements and modernizations:
-
-### Key Improvements
-
-- **Simplified Architecture**: Cleaner code structure with removal of conditional compilation
-- **Async Commands**: All plugin commands now use async/await for better performance
-- **Improved Plugin System**: More consistent plugin initialization and state management
-- **Enhanced Error Handling**: Better error context and propagation
-
-### Migration Resources
-
-- **Migration Summary**: See [docs/migration-summary.md](./docs/migration-summary.md) for migration details
-- **Testing Plan**: See [docs/testing-plan.md](./docs/testing-plan.md) for validation approach
-- **Optimization Tips**: See [docs/optimization-tips.md](./docs/optimization-tips.md) for performance recommendations
-
-### Linux Development Setup
-
-For Linux development, use the setup script to install required dependencies:
+### Building and Running on Linux
 
 ```bash
-./scripts/setup-linux-deps.sh
+# Install dependencies (Ubuntu/Debian)
+sudo apt install build-essential libgtk-3-dev libpulse-dev
+
+# Install dependencies (Fedora)
+sudo dnf install gcc-c++ gtk3-devel pulseaudio-libs-devel
+
+# Debug build and run
+cargo run
+
+# Release build
+cargo build --release
 ```
+
+## Configuration
+
+The application uses a configuration file located at:
+
+- Windows: `%APPDATA%\bestme\BestMe\config\config.json`
+- macOS: `~/Library/Application Support/bestme/BestMe/config/config.json`
+- Linux: `~/.config/bestme/BestMe/config/config.json`
+
+You can also place a `config.json` file in the `config` directory of the application or create a `settings.cfg` file in the application's root directory.
+
+## Development Status
+
+- Windows: Full native GUI implementation
+- macOS: In progress
+- Linux: In progress
+
+## Tauri Integration
+
+The application is in transition to using Tauri for cross-platform UI. The native UI implementations will remain available for platform-specific optimizations.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[MIT](LICENSE)
-
-## Acknowledgments
-
-- [Tauri](https://tauri.app/) for the cross-platform framework
-- [Rust](https://www.rust-lang.org/) for the powerful and safe language
-- [Svelte](https://svelte.dev/) for the reactive UI framework
-- [Whisper](https://github.com/openai/whisper) for the speech recognition technology 
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Running the App with Voice Commands
 

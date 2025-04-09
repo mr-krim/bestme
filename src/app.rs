@@ -95,18 +95,21 @@ impl App {
         if self.use_gui {
             info!("Starting in GUI mode");
             
-            // Initialize GUI
+            // Initialize GUI with proper device and config managers
             let mut gui_manager = Gui::new(
                 Arc::new(parking_lot::Mutex::new(self.config_manager.clone())),
                 Arc::new(parking_lot::Mutex::new(self.device_manager.clone())),
             );
             
+            // Initialize GUI components
             gui_manager.initialize()?;
             
-            // Store and run GUI
+            // Store GUI manager
             self.gui_manager = Some(gui_manager);
             
+            // Run the GUI - this will block until the window is closed
             if let Some(gui) = &mut self.gui_manager {
+                info!("Launching GUI window");
                 gui.run()?;
             }
         } else {

@@ -42,3 +42,9 @@ logs/
 
 # Generated files
 *.generated.*
+
+# Workspace files
+*.code-workspace
+
+# Cursor files
+.cursor/rules/
