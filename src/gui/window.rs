@@ -3,15 +3,20 @@ use crate::config::ConfigManager;
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, RECT, COLORREF};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExA, DefWindowProcA, DestroyWindow,
     RegisterClassExA, ShowWindow, SW_HIDE, SW_SHOW, 
-    WM_CREATE, WM_DESTROY, WM_PAINT, WNDCLASSEXA, WS_EX_LAYERED, WS_EX_TOPMOST,
-    WS_POPUP, CW_USEDEFAULT, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASS_STYLES,
+    WM_CREATE, WM_DESTROY, WM_PAINT, WNDCLASSEXA, WS_EX_TOPMOST,
+    WS_OVERLAPPEDWINDOW, WINDOW_EX_STYLE, WNDCLASS_STYLES,
+    GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
 };
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, PAINTSTRUCT,
+    BeginPaint, EndPaint, PAINTSTRUCT, GetStockObject, WHITE_BRUSH, HBRUSH,
+    CreateFontA, SelectObject, SetTextColor, SetBkMode, TRANSPARENT, HGDIOBJ,
+    DrawTextA, DeleteObject, DT_LEFT, DT_TOP, FW_NORMAL,
+    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+    CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, FF_DONTCARE,
 };
 use windows::core::PCSTR;
 
@@ -49,7 +54,7 @@ impl TranscriptionWindow {
             hInstance: instance.into(),
             hIcon: Default::default(),
             hCursor: unsafe { windows::Win32::UI::WindowsAndMessaging::LoadCursorW(None, windows::Win32::UI::WindowsAndMessaging::IDC_ARROW).unwrap() },
-            hbrBackground: unsafe { windows::Win32::Graphics::Gdi::GetStockObject(windows::Win32::Graphics::Gdi::WHITE_BRUSH).into() },
+            hbrBackground: unsafe { HBRUSH(GetStockObject(WHITE_BRUSH).0) },
             lpszMenuName: PCSTR::null(),
             lpszClassName: PCSTR(b"BestMeTranscriptionWindow\0".as_ptr()),
             hIconSm: Default::default(),
@@ -60,8 +65,8 @@ impl TranscriptionWindow {
         }
         
         // Get screen dimensions for centering the window
-        let screen_width = unsafe { windows::Win32::Graphics::Gdi::GetSystemMetrics(windows::Win32::Graphics::Gdi::SM_CXSCREEN) };
-        let screen_height = unsafe { windows::Win32::Graphics::Gdi::GetSystemMetrics(windows::Win32::Graphics::Gdi::SM_CYSCREEN) };
+        let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
         
         let x = (screen_width - WINDOW_WIDTH) / 2;
         let y = (screen_height - WINDOW_HEIGHT) / 2;
@@ -72,7 +77,7 @@ impl TranscriptionWindow {
                 WINDOW_EX_STYLE(WS_EX_TOPMOST.0),
                 PCSTR(b"BestMeTranscriptionWindow\0".as_ptr()),
                 PCSTR(b"BestMe - Speech to Text\0".as_ptr()),
-                windows::Win32::UI::WindowsAndMessaging::WS_OVERLAPPEDWINDOW,
+                WS_OVERLAPPEDWINDOW,
                 x,
                 y,
                 WINDOW_WIDTH,
@@ -149,63 +154,60 @@ impl TranscriptionWindow {
                     let hdc = BeginPaint(hwnd, &mut ps);
                     
                     // Create a font
-                    let font = windows::Win32::Graphics::Gdi::CreateFontA(
-                        24, 0, 0, 0, 
-                        windows::Win32::Graphics::Gdi::FW_NORMAL, 
-                        0, 0, 0, 
-                        windows::Win32::Graphics::Gdi::DEFAULT_CHARSET, 
-                        windows::Win32::Graphics::Gdi::OUT_DEFAULT_PRECIS,
-                        windows::Win32::Graphics::Gdi::CLIP_DEFAULT_PRECIS,
-                        windows::Win32::Graphics::Gdi::DEFAULT_QUALITY,
-                        windows::Win32::Graphics::Gdi::DEFAULT_PITCH | windows::Win32::Graphics::Gdi::FF_DONTCARE,
+                    let font = CreateFontA(
+                        24,             // Height
+                        0,              // Width
+                        0,              // Escapement
+                        0,              // Orientation
+                        400,            // Weight (400 = normal)
+                        0,              // Italic
+                        0,              // Underline
+                        0,              // StrikeOut
+                        DEFAULT_CHARSET.0 as u32,      // CharSet
+                        OUT_DEFAULT_PRECIS.0 as u32,   // OutPrecision
+                        CLIP_DEFAULT_PRECIS.0 as u32,  // ClipPrecision
+                        DEFAULT_QUALITY.0 as u32,      // Quality
+                        (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32, // PitchAndFamily
                         PCSTR(b"Arial\0".as_ptr()),
                     );
                     
-                    let old_font = windows::Win32::Graphics::Gdi::SelectObject(hdc, font);
+                    let old_font = SelectObject(hdc, HGDIOBJ(font.0));
                     
                     // Set text color
-                    windows::Win32::Graphics::Gdi::SetTextColor(hdc, 0x00000000); // Black
+                    SetTextColor(hdc, COLORREF(0x00000000)); // Black
                     
                     // Set transparent background
-                    windows::Win32::Graphics::Gdi::SetBkMode(hdc, windows::Win32::Graphics::Gdi::TRANSPARENT);
+                    SetBkMode(hdc, TRANSPARENT);
                     
                     // Display welcome message
                     let message = b"BestMe - Speech to Text App\0";
-                    let rect = windows::Win32::Foundation::RECT {
+                    let mut rect = RECT {
                         left: 20,
                         top: 20,
                         right: WINDOW_WIDTH,
                         bottom: WINDOW_HEIGHT,
                     };
                     
-                    windows::Win32::Graphics::Gdi::DrawTextA(
-                        hdc,
-                        PCSTR(message.as_ptr()),
-                        -1,
-                        &rect,
-                        windows::Win32::Graphics::Gdi::DT_LEFT | windows::Win32::Graphics::Gdi::DT_TOP,
-                    );
+                    // Convert message to a mutable slice
+                    let mut message_bytes = message.to_vec();
+                    DrawTextA(hdc, &mut message_bytes, &mut rect, DT_LEFT | DT_TOP);
                     
                     // Add status message
                     let status = b"Ready to transcribe. Start speaking...\0";
-                    let status_rect = windows::Win32::Foundation::RECT {
+                    let mut status_rect = RECT {
                         left: 20,
                         top: 70,
                         right: WINDOW_WIDTH,
                         bottom: WINDOW_HEIGHT,
                     };
                     
-                    windows::Win32::Graphics::Gdi::DrawTextA(
-                        hdc,
-                        PCSTR(status.as_ptr()),
-                        -1,
-                        &status_rect,
-                        windows::Win32::Graphics::Gdi::DT_LEFT | windows::Win32::Graphics::Gdi::DT_TOP,
-                    );
+                    // Convert status to a mutable slice
+                    let mut status_bytes = status.to_vec();
+                    DrawTextA(hdc, &mut status_bytes, &mut status_rect, DT_LEFT | DT_TOP);
                     
                     // Clean up
-                    windows::Win32::Graphics::Gdi::SelectObject(hdc, old_font);
-                    windows::Win32::Graphics::Gdi::DeleteObject(font);
+                    SelectObject(hdc, old_font);
+                    DeleteObject(HGDIOBJ(font.0));
                     
                     EndPaint(hwnd, &ps);
                 }

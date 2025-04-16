@@ -63,8 +63,16 @@ impl App {
         #[cfg(target_os = "windows")]
         let use_gui = true;
         
+        // For WSL (Windows Subsystem for Linux), we'll also try to enable GUI mode
         #[cfg(not(target_os = "windows"))]
-        let use_gui = false;
+        let use_gui = {
+            // Check if we're running under WSL by looking for "microsoft" in the release string
+            if let Ok(release) = std::fs::read_to_string("/proc/sys/kernel/osrelease") {
+                release.to_lowercase().contains("microsoft")
+            } else {
+                false
+            }
+        };
         
         Ok(Self {
             config_manager,
@@ -101,8 +109,18 @@ impl App {
                 Arc::new(parking_lot::Mutex::new(self.device_manager.clone())),
             );
             
-            // Initialize GUI components
-            gui_manager.initialize()?;
+            // Initialize GUI components with error handling
+            match gui_manager.initialize() {
+                Ok(_) => {
+                    info!("GUI initialization successful");
+                }
+                Err(e) => {
+                    error!("GUI initialization failed: {}", e);
+                    info!("Falling back to console mode");
+                    self.use_gui = false;
+                    return self.run_console_mode();
+                }
+            }
             
             // Store GUI manager
             self.gui_manager = Some(gui_manager);
@@ -110,23 +128,39 @@ impl App {
             // Run the GUI - this will block until the window is closed
             if let Some(gui) = &mut self.gui_manager {
                 info!("Launching GUI window");
-                gui.run()?;
+                match gui.run() {
+                    Ok(_) => {
+                        info!("GUI exited normally");
+                    }
+                    Err(e) => {
+                        error!("Error running GUI: {}", e);
+                        info!("Falling back to console mode");
+                        self.use_gui = false;
+                        return self.run_console_mode();
+                    }
+                }
             }
         } else {
             info!("Starting in console mode");
-            
-            // Create a more robust runtime for async tasks
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(4)
-                .enable_all()
-                .build()
-                .context("Failed to create tokio runtime")?;
-            
-            // Run the main menu loop
-            rt.block_on(async {
-                self.main_menu().await
-            })?;
+            return self.run_console_mode();
         }
+        
+        Ok(())
+    }
+    
+    /// Run in console mode
+    fn run_console_mode(&mut self) -> Result<()> {
+        // Create a more robust runtime for async tasks
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .context("Failed to create tokio runtime")?;
+        
+        // Run the main menu loop
+        rt.block_on(async {
+            self.main_menu().await
+        })?;
         
         Ok(())
     }
@@ -598,5 +632,10 @@ impl App {
         }
         
         Ok(())
+    }
+
+    /// Force GUI mode
+    pub fn set_gui_mode(&mut self, enabled: bool) {
+        self.use_gui = enabled;
     }
 } 

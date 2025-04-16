@@ -1,37 +1,35 @@
 use anyhow::Result;
 use log::{error, info, LevelFilter};
 use std::env;
+use bestme::config::ConfigManager;
+use bestme::app::App;
 
-fn main() -> Result<()> {
-    // Initialize logger
-    env_logger::Builder::new()
-        .filter_level(LevelFilter::Info)
-        .init();
+/// Main entry point
+fn main() -> anyhow::Result<()> {
+    // Initialize logging
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     
-    // Parse command-line arguments
-    let args: Vec<String> = env::args().collect();
-    let use_gui = args.iter().any(|arg| arg == "--gui");
-    let verbose = args.iter().any(|arg| arg == "--verbose");
+    // Log startup information
+    info!("Initializing BestMe application");
     
-    if verbose {
-        // Enable more detailed logging
-        env_logger::Builder::new()
-            .filter_level(LevelFilter::Debug)
-            .init();
-        info!("Verbose logging enabled");
+    // Check for GUI mode command-line argument
+    let args: Vec<String> = std::env::args().collect();
+    let force_gui = args.len() > 1 && (args[1] == "--gui" || args[1] == "-g");
+    
+    // Create configuration manager
+    let config_manager = ConfigManager::new()?;
+    
+    // Create application instance
+    let mut app = App::new(config_manager)?;
+    
+    // Force GUI mode if requested
+    if force_gui {
+        info!("Forcing GUI mode from command-line argument");
+        app.set_gui_mode(true);
     }
     
     // Run the application
-    if let Err(e) = bestme::run_with_options(use_gui) {
-        error!("Application error: {}", e);
-        // Get the full error chain
-        let mut err = e.source();
-        while let Some(source) = err {
-            error!("Caused by: {}", source);
-            err = source.source();
-        }
-        return Err(e);
-    }
+    app.run()?;
     
     Ok(())
 } 

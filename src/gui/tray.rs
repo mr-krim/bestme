@@ -7,13 +7,33 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreatePopupMenu, CreateWindowExA, DefWindowProcA, DestroyWindow,
     RegisterClassExA, HMENU, WM_APP, WM_DESTROY,
     WNDCLASSEXA, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASS_STYLES,
+    AppendMenuA, MF_STRING, MF_SEPARATOR, LoadIconW, IDI_APPLICATION,
+    GetCursorPos, SetForegroundWindow, TrackPopupMenu, TPM_RIGHTBUTTON,
+    PostMessageA, WM_RBUTTONUP, WM_LBUTTONUP, LoadCursorW, IDC_ARROW,
 };
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, POINT, WPARAM, LPARAM, LRESULT};
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconA, NOTIFYICONDATAA, NIF_ICON, NIF_MESSAGE, 
     NIF_TIP, NIM_ADD, NIM_DELETE,
 };
 use windows::core::PCSTR;
+
+/// System tray manager
+pub struct SystemTray {
+    /// Window handle
+    hwnd: HWND,
+    
+    /// Menu handle
+    menu: HMENU,
+    
+    /// Configuration manager
+    #[allow(dead_code)]
+    config_manager: Arc<Mutex<ConfigManager>>,
+    
+    /// Device manager
+    #[allow(dead_code)]
+    device_manager: Arc<Mutex<DeviceManager>>,
+}
 
 /// Tray icon message ID
 const TRAY_ICON_MESSAGE: u32 = WM_APP + 1;
@@ -24,28 +44,10 @@ const MENU_START: u32 = 2;
 const MENU_STOP: u32 = 3;
 const MENU_EXIT: u32 = 4;
 
-/// Tray icon
-pub struct TrayIcon {
-    /// Window handle
-    hwnd: HWND,
-    
-    /// Menu handle
-    #[allow(dead_code)]
-    menu: HMENU,
-    
-    /// Configuration manager
-    #[allow(dead_code)]
-    config_manager: Arc<Mutex<ConfigManager>>,
-    
-    /// Device manager
-    #[allow(dead_code)]
-    device_manager: Arc<DeviceManager>,
-}
-
-impl TrayIcon {
-    /// Create a new tray icon
-    pub fn new(config_manager: Arc<Mutex<ConfigManager>>, device_manager: Arc<DeviceManager>) -> Result<Self> {
-        // Register window class
+impl SystemTray {
+    /// Create a new system tray
+    pub fn new(config_manager: Arc<Mutex<ConfigManager>>, device_manager: Arc<Mutex<DeviceManager>>) -> Result<Self> {
+        // Register window class for tray icon
         let instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleA(None).unwrap() };
         
         let window_class = WNDCLASSEXA {
@@ -56,7 +58,7 @@ impl TrayIcon {
             cbWndExtra: 0,
             hInstance: instance.into(),
             hIcon: Default::default(),
-            hCursor: unsafe { windows::Win32::UI::WindowsAndMessaging::LoadCursorW(None, windows::Win32::UI::WindowsAndMessaging::IDC_ARROW).unwrap() },
+            hCursor: unsafe { LoadCursorW(None, IDC_ARROW).unwrap() },
             hbrBackground: Default::default(),
             lpszMenuName: PCSTR::null(),
             lpszClassName: PCSTR(b"BestMeTrayIcon\0".as_ptr()),
@@ -67,7 +69,7 @@ impl TrayIcon {
             RegisterClassExA(&window_class);
         }
         
-        // Create window
+        // Create a hidden window to handle tray messages
         let hwnd = unsafe {
             CreateWindowExA(
                 WINDOW_EX_STYLE(0),
@@ -89,7 +91,7 @@ impl TrayIcon {
             anyhow::bail!("Failed to create tray window");
         }
         
-        // Create tray icon
+        // Create system tray icon
         let mut nid = NOTIFYICONDATAA::default();
         nid.cbSize = std::mem::size_of::<NOTIFYICONDATAA>() as u32;
         nid.hWnd = hwnd;
@@ -99,12 +101,7 @@ impl TrayIcon {
         
         // Load icon
         nid.hIcon = unsafe {
-            let icon_id = windows::Win32::UI::WindowsAndMessaging::IDI_APPLICATION;
-            windows::Win32::UI::WindowsAndMessaging::LoadIconW(
-                None,
-                icon_id,
-            )
-            .unwrap()
+            LoadIconW(None, IDI_APPLICATION).unwrap()
         };
         
         // Set tooltip
@@ -118,8 +115,12 @@ impl TrayIcon {
         }
         
         // Add notification icon
-        unsafe {
-            Shell_NotifyIconA(NIM_ADD, &nid);
+        let result = unsafe {
+            Shell_NotifyIconA(NIM_ADD, &nid)
+        };
+        
+        if !result.as_bool() {
+            anyhow::bail!("Failed to add tray icon");
         }
         
         // Create popup menu
@@ -127,44 +128,44 @@ impl TrayIcon {
         
         // Add menu items
         unsafe {
-            windows::Win32::UI::WindowsAndMessaging::AppendMenuA(
+            AppendMenuA(
                 menu,
-                windows::Win32::UI::WindowsAndMessaging::MF_STRING,
+                MF_STRING,
                 MENU_START as usize,
                 PCSTR(b"Start Transcription\0".as_ptr()),
             );
             
-            windows::Win32::UI::WindowsAndMessaging::AppendMenuA(
+            AppendMenuA(
                 menu,
-                windows::Win32::UI::WindowsAndMessaging::MF_STRING,
+                MF_STRING,
                 MENU_STOP as usize,
                 PCSTR(b"Stop Transcription\0".as_ptr()),
             );
             
-            windows::Win32::UI::WindowsAndMessaging::AppendMenuA(
+            AppendMenuA(
                 menu,
-                windows::Win32::UI::WindowsAndMessaging::MF_SEPARATOR,
+                MF_SEPARATOR,
                 0,
                 PCSTR::null(),
             );
             
-            windows::Win32::UI::WindowsAndMessaging::AppendMenuA(
+            AppendMenuA(
                 menu,
-                windows::Win32::UI::WindowsAndMessaging::MF_STRING,
+                MF_STRING,
                 MENU_SETTINGS as usize,
                 PCSTR(b"Settings\0".as_ptr()),
             );
             
-            windows::Win32::UI::WindowsAndMessaging::AppendMenuA(
+            AppendMenuA(
                 menu,
-                windows::Win32::UI::WindowsAndMessaging::MF_SEPARATOR,
+                MF_SEPARATOR,
                 0,
                 PCSTR::null(),
             );
             
-            windows::Win32::UI::WindowsAndMessaging::AppendMenuA(
+            AppendMenuA(
                 menu,
-                windows::Win32::UI::WindowsAndMessaging::MF_STRING,
+                MF_STRING,
                 MENU_EXIT as usize,
                 PCSTR(b"Exit\0".as_ptr()),
             );
@@ -182,26 +183,23 @@ impl TrayIcon {
     extern "system" fn wnd_proc(
         hwnd: HWND,
         msg: u32,
-        wparam: windows::Win32::Foundation::WPARAM,
-        lparam: windows::Win32::Foundation::LPARAM,
-    ) -> windows::Win32::Foundation::LRESULT {
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
         match msg {
             TRAY_ICON_MESSAGE => {
                 match lparam.0 as u32 {
-                    windows::Win32::UI::WindowsAndMessaging::WM_RBUTTONUP => {
+                    WM_RBUTTONUP => {
                         // Show context menu
                         unsafe {
-                            let mut point = windows::Win32::Foundation::POINT::default();
-                            windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point);
+                            let mut point = POINT::default();
+                            GetCursorPos(&mut point);
                             
-                            windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
+                            SetForegroundWindow(hwnd);
                             
-                            let flags = windows::Win32::UI::WindowsAndMessaging::TPM_RIGHTBUTTON;
-                            let _tpm_result = windows::Win32::UI::WindowsAndMessaging::TrackPopupMenu(
-                                // Get menu from class instance
-                                // This is a simplification; we'd need to store the menu handle
-                                // in a static or window property in a real implementation
-                                HMENU(0),
+                            let flags = TPM_RIGHTBUTTON;
+                            let _tpm_result = TrackPopupMenu(
+                                HMENU(0), // This should ideally be the menu handle
                                 flags,
                                 point.x,
                                 point.y,
@@ -210,40 +208,15 @@ impl TrayIcon {
                                 None,
                             );
                             
-                            windows::Win32::UI::WindowsAndMessaging::PostMessageA(hwnd, 0, windows::Win32::Foundation::WPARAM(0), windows::Win32::Foundation::LPARAM(0));
+                            PostMessageA(hwnd, 0, WPARAM(0), LPARAM(0));
                         }
-                        windows::Win32::Foundation::LRESULT(0)
+                        LRESULT(0)
                     },
-                    windows::Win32::UI::WindowsAndMessaging::WM_LBUTTONUP => {
+                    WM_LBUTTONUP => {
                         // Toggle transcription window
-                        windows::Win32::Foundation::LRESULT(0)
+                        LRESULT(0)
                     },
-                    _ => windows::Win32::Foundation::LRESULT(0),
-                }
-            },
-            windows::Win32::UI::WindowsAndMessaging::WM_COMMAND => {
-                let command_id = wparam.0 as u32 & 0xFFFF;
-                match command_id {
-                    MENU_START => {
-                        // Start transcription
-                        windows::Win32::Foundation::LRESULT(0)
-                    },
-                    MENU_STOP => {
-                        // Stop transcription
-                        windows::Win32::Foundation::LRESULT(0)
-                    },
-                    MENU_SETTINGS => {
-                        // Show settings dialog
-                        windows::Win32::Foundation::LRESULT(0)
-                    },
-                    MENU_EXIT => {
-                        // Exit application
-                        unsafe {
-                            windows::Win32::UI::WindowsAndMessaging::PostQuitMessage(0);
-                        }
-                        windows::Win32::Foundation::LRESULT(0)
-                    },
-                    _ => unsafe { DefWindowProcA(hwnd, msg, wparam, lparam) },
+                    _ => LRESULT(0),
                 }
             },
             WM_DESTROY => {
@@ -255,17 +228,16 @@ impl TrayIcon {
                 
                 unsafe {
                     Shell_NotifyIconA(NIM_DELETE, &nid);
-                    windows::Win32::UI::WindowsAndMessaging::PostQuitMessage(0);
                 }
                 
-                windows::Win32::Foundation::LRESULT(0)
+                LRESULT(0)
             },
             _ => unsafe { DefWindowProcA(hwnd, msg, wparam, lparam) },
         }
     }
 }
 
-impl Drop for TrayIcon {
+impl Drop for SystemTray {
     fn drop(&mut self) {
         // Remove tray icon
         let mut nid = NOTIFYICONDATAA::default();

@@ -4,8 +4,7 @@ pub mod tray;
 pub mod window;
 
 use anyhow::Result;
-use log::info;
-use log::warn;
+use log::{info, warn};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -39,17 +38,10 @@ impl Gui {
         #[cfg(target_os = "windows")]
         {
             // On Windows, we'll pre-register the window classes for our components
-            let instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleA(None).unwrap() };
+            let _instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleA(None).unwrap() };
             
-            // Initialize tray icon
-            let tray = crate::gui::tray::SystemTray::new(
-                self.config_manager.clone(),
-                self.device_manager.clone()
-            )?;
-            
-            // Keep the tray icon reference (we might use this later)
-            let _tray = tray;
-            
+            // We won't initialize the tray icon for now to avoid potential issues
+            // We'll focus on getting the main window working first
             info!("Windows GUI components initialized");
         }
         
@@ -107,19 +99,29 @@ impl Gui {
             let device_manager_clone = self.device_manager.clone();
             
             // Initialize and show the transcription window
-            let mut window = crate::gui::window::TranscriptionWindow::new(
+            let mut window = match crate::gui::window::TranscriptionWindow::new(
                 config_manager_clone,
                 Arc::new(device_manager_clone.lock().clone())
-            )?;
+            ) {
+                Ok(window) => window,
+                Err(e) => {
+                    log::error!("Failed to create transcription window: {}", e);
+                    return Err(e);
+                }
+            };
             
             // Show the window
-            window.show()?;
+            if let Err(e) = window.show() {
+                log::error!("Failed to show window: {}", e);
+                return Err(e);
+            }
             
             // Windows message pump using winapi
             use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageA, GetMessageA, TranslateMessage, MSG};
             
             unsafe {
                 let mut msg = MSG::default();
+                // Use GetMessageA with proper error handling
                 while GetMessageA(&mut msg, None, 0, 0).as_bool() {
                     TranslateMessage(&msg);
                     DispatchMessageA(&msg);

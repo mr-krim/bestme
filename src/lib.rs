@@ -4,42 +4,43 @@ pub mod audio;
 pub mod gui;
 
 use anyhow::Result;
-use log::{error, info};
+use log::info;
 
 use crate::app::App;
 use crate::config::ConfigManager;
 
 /// Initialize and run the application
 pub fn run() -> Result<()> {
-    // Default to console mode
-    run_with_options(false)
-}
-
-/// Initialize and run the application with specific options
-pub fn run_with_options(use_gui: bool) -> Result<()> {
-    info!("Initializing BestMe application");
+    info!("Initializing BestMe application from library");
     
     // Initialize configuration
-    let config_manager = match ConfigManager::new() {
-        Ok(cm) => cm,
-        Err(e) => {
-            error!("Failed to initialize configuration: {}", e);
-            return Err(e);
-        }
-    };
+    let config_manager = ConfigManager::new()?;
     
     // Initialize application
     let mut app = App::new(config_manager)?;
     
-    // Run the application with the specified mode
-    info!("Running BestMe application");
-    if use_gui {
-        info!("Using GUI mode");
-        app.run_gui()?;
-    } else {
-        info!("Using console mode");
-        app.run()?;
-    }
+    // Run the application
+    app.run()?;
+    
+    info!("BestMe application completed successfully");
+    Ok(())
+}
+
+/// Initialize and run the application with GUI mode forced
+pub fn run_with_gui() -> Result<()> {
+    info!("Initializing BestMe application with GUI mode");
+    
+    // Initialize configuration
+    let config_manager = ConfigManager::new()?;
+    
+    // Initialize application
+    let mut app = App::new(config_manager)?;
+    
+    // Force GUI mode
+    app.set_gui_mode(true);
+    
+    // Run the application
+    app.run()?;
     
     info!("BestMe application completed successfully");
     Ok(())
