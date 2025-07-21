@@ -17,14 +17,18 @@ This document provides an overview of the Windows 11 testing process for the Bes
    - Rust and Cargo (latest stable)
    - Visual Studio Build Tools 
    - WebView2 Runtime
+   - Tauri CLI (`cargo install tauri-cli`)
 
 3. **Build and Run**:
    ```powershell
    # Using the build script
    .\scripts\build-windows.ps1
    
+   # Or run in GUI mode
+   .\run-gui-mode.ps1
+   
    # Or manually
-   cargo run
+   cargo run --features tauri-2 -- --gui
    ```
 
 ## Running in GUI Mode
@@ -43,10 +47,10 @@ To run the application in GUI mode:
 2. **Or with command-line parameters**:
    ```powershell
    # Basic GUI mode
-   .\bestme.exe --gui
+   cargo run --features tauri-2 -- --gui
    
    # With verbose logging
-   .\bestme.exe --gui --verbose
+   $env:RUST_LOG="debug"; cargo run --features tauri-2 -- --gui
    ```
 
 ## Windows-Specific Features
@@ -91,6 +95,9 @@ When reporting Windows-specific issues:
 For packaging a Windows release build:
 
 ```powershell
+# Install Tauri CLI if not installed
+cargo install tauri-cli
+
 # Use Tauri CLI to build a bundled Windows application
 cargo tauri build
 ```
@@ -101,7 +108,7 @@ Output will be located in `target\release\bundle\`.
 
 If the application's GUI window doesn't appear or closes immediately:
 
-1. Run with verbose logging: `.\bestme.exe --gui --verbose`
+1. Run with verbose logging: `$env:RUST_LOG="debug"; cargo run --features tauri-2 -- --gui`
 2. Check the logs in: `%APPDATA%\bestme\logs\`
 3. Try running the application as administrator
 4. Make sure your system meets the minimum requirements

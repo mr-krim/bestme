@@ -1,8 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::{Result};
 use log::info;
 use std::collections::HashMap;
 use cpal::traits::{DeviceTrait, HostTrait};
-use super::get_device_description;
 
 /// Audio device manager
 #[derive(Clone)]
@@ -37,7 +36,6 @@ impl DeviceManager {
         #[cfg(target_os = "windows")]
         {
             self.refresh_devices_windows()?;
-            return Ok(());
         }
         
         #[cfg(not(target_os = "windows"))]
@@ -47,7 +45,7 @@ impl DeviceManager {
             
             // Try to get the default input device
             if let Some(default_device) = host.default_input_device() {
-                let device_name = default_device.name().context("Could not get default device name")?;
+                let device_name = default_device.name().unwrap_or_else(|_| "Unknown Device".to_string());
                 self.default_input_device = Some(device_name.clone());
                 self.input_devices.insert(device_name.clone(), device_name);
             }
@@ -76,6 +74,7 @@ impl DeviceManager {
     }
     
     /// Add a mock audio device for testing in headless/WSL environments
+    #[cfg(target_os = "linux")]
     fn add_mock_device_for_testing(&mut self) {
         info!("Adding mock audio device for testing purposes");
         let mock_id = "mock-device-id".to_string();

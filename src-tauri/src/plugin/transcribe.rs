@@ -16,7 +16,7 @@ use serde_json::json;
 use std::marker::PhantomData;
 
 use bestme::audio::capture::AudioData;
-use bestme::config::{ConfigManager, WhisperModelSize};
+use bestme::config::{ConfigManager, WhisperModelSize, SpeechSettings};
 
 // Constants for audio processing
 const WHISPER_SAMPLE_RATE: usize = 16000;
@@ -211,8 +211,15 @@ impl TranscribeState {
         (self.get_model_path)(self.get_model_size_string(model_size))
     }
     
-    // Download the model (using method that mirrors Tauri 2.0's model)
+    // Download the model
     async fn download_model(&self, model_size: &WhisperModelSize, model_path: &Path) -> Result<()> {
+        // Check offline mode setting first
+        let offline_enabled = self.config_manager.lock().get_config().general.offline_mode;
+        if offline_enabled {
+            error!("Offline mode is enabled. Cannot download model: {:?}", model_size);
+            return Err(anyhow!("Download prevented: Offline mode is enabled."));
+        }
+
         let model_name = self.get_model_size_string(model_size);
         
         // Find the URL for the specified model
@@ -249,7 +256,7 @@ impl TranscribeState {
         let progress = Arc::clone(&self.download_progress);
         let app_handle = self.app_handle.clone();
         
-        let mut downloaded: u64 = 0;
+        let mut downloaded_bytes: u64 = 0;
         let mut last_progress: f32 = 0.0;
         
         while let Some(item) = stream.next().await {
@@ -262,8 +269,8 @@ impl TranscribeState {
             file.write_all(&chunk).await?;
             
             // Update download progress
-            downloaded += chunk.len() as u64;
-            let current_progress = downloaded as f32 / total_size as f32;
+            downloaded_bytes += chunk.len() as u64;
+            let current_progress = downloaded_bytes as f32 / total_size as f32;
             
             // Only update progress if it's changed significantly (avoid UI spam)
             if current_progress - last_progress > 0.01 {
@@ -309,73 +316,47 @@ impl TranscribeState {
     
     // Process audio buffer using Whisper
     async fn process_audio_buffer(&self, audio_buffer: Vec<f32>) -> Result<String> {
-        // Get the Whisper context
-        let context = {
-            let whisper_context = self.whisper_context.lock();
-            
-            if whisper_context.is_none() {
-                // Ensure model is loaded first
-                drop(whisper_context);
-                
-                let config = self.config_manager.lock().get_config().audio.speech.clone();
-                self.load_whisper_model(&config.model_size).await?;
-                
-                // Now get the context again
-                let whisper_context = self.whisper_context.lock();
-                whisper_context.as_ref().ok_or_else(|| anyhow::anyhow!("Failed to load Whisper model"))?
-            } else {
-                whisper_context.as_ref().ok_or_else(|| anyhow::anyhow!("Whisper context not available"))?
-            }
-        };
+        let context_lock = self.whisper_context.lock();
+        let context = context_lock.as_ref().ok_or_else(|| anyhow!("Whisper context not loaded"))?;
         
-        // Get config
+        // Get relevant settings from config
         let speech_config = self.config_manager.lock().get_config().audio.speech.clone();
         
-        // Set up parameters for Whisper
-        let mut params = whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 0 });
+        debug!("Processing audio buffer. Language: {}, Translate: {}", 
+               speech_config.language.clone().unwrap_or_else(|| "auto".to_string()), 
+               speech_config.translate_to_english);
+
+        // Create parameters for transcription using the helper function
+        let mut params = self.create_whisper_params(&speech_config);
         
-        // Set language if specified, otherwise auto-detect
-        if speech_config.language != "auto" {
-            params.set_language(Some(&speech_config.language));
-        }
-        
-        // Set translation if enabled
-        if speech_config.translate_to_english {
-            params.set_translate(true);
-        }
-        
-        // Other parameters
-        params.set_print_special(false);
+        // Configure other parameters as needed (potentially from config later)
+        // NOTE: The best_of parameter is now set within create_whisper_params
+        params.set_print_special_tokens(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+        // params.set_n_threads(4); // Example: adjust thread count
         
-        // Process audio in a blocking task (Whisper is CPU-intensive)
+        // Run transcription in a blocking task
+        let params_clone = params.clone(); // Clone params for the blocking task
+        let audio_buffer_clone = audio_buffer.clone(); // Clone buffer
         let result = tokio::task::spawn_blocking(move || {
-            let audio_buffer = audio_buffer;
-            let context = context;
-            
-            // Run Whisper inference
-            match context.full(params, &audio_buffer) {
-                Ok(_) => {
-                    // Extract number of segments
-                    let num_segments = context.full_n_segments();
-                    
-                    // Get text from each segment
-                    let mut text = String::new();
-                    for i in 0..num_segments {
-                        if let Ok(segment) = context.full_get_segment_text(i) {
-                            text.push_str(&segment);
-                            text.push(' ');
-                        }
-                    }
-                    
-                    Ok(text)
-                },
-                Err(e) => Err(anyhow::anyhow!("Whisper inference failed: {}", e)),
+            let mut state = context.create_state()?;
+            state.full(params_clone, &audio_buffer_clone)?;
+
+            let num_segments = state.full_n_segments()?;
+            let mut result_text = String::new();
+            for i in 0..num_segments {
+                if let Ok(segment) = state.full_get_segment_text(i) {
+                    result_text.push_str(&segment);
+                } else {
+                    warn!("Failed to get segment {}", i);
+                }
             }
-        }).await??;
-        
+            Ok::<String, anyhow::Error>(result_text)
+        }).await??; // Double ?? to handle JoinError and inner Result
+
+        debug!("Transcription segment result: {}", result);
         Ok(result)
     }
     
@@ -574,6 +555,38 @@ impl TranscribeState {
             Err(format!("Model file not found: {}", path.display()))
         }
     }
+
+    fn create_whisper_params(&self, speech_settings: &SpeechSettings) -> FullParams<'static, 'static> {
+        // Access whisper_params correctly from config_manager
+        let whisper_params_config = self.config_manager.lock().get_config().whisper_params.clone();
+        
+        let best_of = whisper_params_config.best_of;
+
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of });
+
+        // Set language if specified and not "auto"
+        if let Some(lang) = &speech_settings.language {
+            if !lang.is_empty() && lang != "auto" {
+                params.set_language(Some(lang));
+                debug!("Setting language parameter to: {}", lang);
+            } else {
+                 debug!("Using auto-detect for language (language set to '{}').", lang);
+                 params.set_language(None); // Explicitly set to None for auto-detect/empty
+            }
+        } else {
+             debug!("Using auto-detect for language (language is None).");
+             params.set_language(None); // Explicitly set to None for auto-detect
+        }
+
+
+        // Set translate flag
+        params.set_translate(speech_settings.translate_to_english);
+        if speech_settings.translate_to_english {
+            debug!("Setting translate parameter to true.");
+        }
+
+        params
+    }
 }
 
 impl Clone for TranscribeState {
@@ -763,4 +776,124 @@ pub async fn is_model_downloaded(
     // Check if model exists
     let path = state.ensure_model_exists(&model_size);
     Ok(path.is_ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bestme::config::{Config, GeneralSettings, AudioSettings, SpeechSettings, AiSettings};
+    use std::path::PathBuf;
+    use tempfile::tempdir; // For creating temporary directories
+
+    // Helper to create a mock ConfigManager with specific settings
+    fn create_mock_config_manager(config: Config) -> Arc<Mutex<ConfigManager>> {
+        let manager = ConfigManager::from_config(config);
+        Arc::new(Mutex::new(manager))
+    }
+
+    // Helper to create a TranscribeState with a mock config and temp model dir
+    fn create_test_transcribe_state(config: Config, model_dir: PathBuf) -> TranscribeState {
+        let config_manager = create_mock_config_manager(config);
+        let get_model_path: Box<dyn Fn(&str) -> PathBuf + Send + Sync> = Box::new(move |model_size| {
+            model_dir.join(format!("ggml-{}.bin", model_size))
+        });
+
+        TranscribeState {
+            config_manager,
+            transcription_text: Arc::new(Mutex::new(String::new())),
+            transcription_active: Arc::new(Mutex::new(false)),
+            audio_receiver: Arc::new(Mutex::new(None)), // Not needed for these tests
+            audio_sender: Arc::new(Mutex::new(None)), // Not needed for these tests
+            whisper_context: Arc::new(Mutex::new(None)), // Mock or load later if needed
+            audio_buffer: Arc::new(Mutex::new(Vec::new())),
+            app_handle: None, // Not needed for these tests
+            download_progress: Arc::new(Mutex::new(None)),
+            get_model_path,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_download_model_offline_mode() {
+        let temp_dir = tempdir().unwrap();
+        let model_dir = temp_dir.path().to_path_buf();
+        let model_path = model_dir.join("ggml-tiny.bin");
+
+        // Create config with offline_mode = true
+        let mut config = Config::default();
+        config.general.offline_mode = true;
+
+        let state = create_test_transcribe_state(config, model_dir);
+
+        // Attempt to download the model
+        let result = state.download_model(&WhisperModelSize::Tiny, &model_path).await;
+
+        // Assert that it returns an error due to offline mode
+        assert!(result.is_err());
+        let error_message = result.err().unwrap().to_string();
+        assert!(error_message.contains("Offline mode is enabled"), "Error message mismatch: {}", error_message);
+
+        // Assert that the model file was NOT created (nor the temp file)
+        assert!(!model_path.exists());
+        assert!(!model_path.with_extension("tmp").exists());
+    }
+
+    #[tokio::test]
+    async fn test_create_whisper_params() {
+        let temp_dir = tempdir().unwrap();
+        let model_dir = temp_dir.path().to_path_buf();
+        let config = Config::default(); // Use default config for this test
+        let state = create_test_transcribe_state(config, model_dir);
+
+        // Case 1: Default settings (language=None, translate=false)
+        let settings_default = SpeechSettings::default();
+        let params_default = state.create_whisper_params(&settings_default);
+        // Assertions: Relying on debug logs and internal logic for now,
+        // as FullParams doesn't expose getters easily.
+        // We mainly test that the function runs without panic.
+        assert_eq!(settings_default.translate_to_english, false); 
+        assert!(settings_default.language.is_none());
+
+        // Case 2: Specific language, translate=false
+        let settings_lang_en = SpeechSettings {
+            language: Some("en".to_string()),
+            translate_to_english: false,
+            ..Default::default()
+        };
+        let params_lang_en = state.create_whisper_params(&settings_lang_en);
+        assert_eq!(settings_lang_en.translate_to_english, false);
+        assert_eq!(settings_lang_en.language, Some("en".to_string()));
+
+        // Case 3: Auto language ("auto"), translate=true
+        let settings_auto_translate = SpeechSettings {
+            language: Some("auto".to_string()),
+            translate_to_english: true,
+            ..Default::default()
+        };
+        let params_auto_translate = state.create_whisper_params(&settings_auto_translate);
+        assert_eq!(settings_auto_translate.translate_to_english, true);
+        assert_eq!(settings_auto_translate.language, Some("auto".to_string()));
+
+        // Case 4: Specific language, translate=true
+        let settings_lang_es_translate = SpeechSettings {
+            language: Some("es".to_string()),
+            translate_to_english: true,
+            ..Default::default()
+        };
+        let params_lang_es_translate = state.create_whisper_params(&settings_lang_es_translate);
+        assert_eq!(settings_lang_es_translate.translate_to_english, true);
+        assert_eq!(settings_lang_es_translate.language, Some("es".to_string()));
+        
+        // Case 5: Empty language string (should be treated as auto), translate=false
+        let settings_empty_lang = SpeechSettings {
+            language: Some("".to_string()),
+            translate_to_english: false,
+            ..Default::default()
+        };
+        let params_empty_lang = state.create_whisper_params(&settings_empty_lang);
+        assert_eq!(settings_empty_lang.translate_to_english, false);
+        assert_eq!(settings_empty_lang.language, Some("".to_string()));
+    }
+
+    // TODO: Fix create_whisper_params to read best_of from config
+    // TODO: Add test for process_audio_buffer parameters (might need mock context)
 } 

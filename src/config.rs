@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use log::{info, warn, error};
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::{fmt, fs};
 use std::path::PathBuf;
 
 use crate::audio::voice_commands::VoiceCommandConfig;
@@ -18,6 +18,14 @@ pub struct Config {
     
     /// Audio device settings
     pub audio: AudioSettings,
+
+    /// AI Provider settings
+    #[serde(default)] // Ensure default is used if missing in file
+    pub ai: AiSettings,
+    
+    /// Whisper transcription parameters
+    #[serde(default)] // Ensure default is used if missing in file
+    pub whisper_params: WhisperParamsSettings,
 }
 
 /// General application settings
@@ -31,6 +39,14 @@ pub struct GeneralSettings {
     
     /// Minimize to tray on startup
     pub minimize_to_tray: bool,
+
+    /// Start transcribing automatically when app starts
+    #[serde(default = "default_true")] // Default to true if missing
+    pub auto_transcribe: bool,
+
+    /// Prefer offline models/operations when available
+    #[serde(default = "default_true")] // Default to true if missing
+    pub offline_mode: bool,
 }
 
 /// Audio configuration
@@ -47,6 +63,31 @@ pub struct AudioSettings {
     
     /// Voice command settings
     pub voice_commands: VoiceCommandConfig,
+}
+
+/// AI Provider settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiSettings {
+    /// API Key for Requesty Provider (if used)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requesty_api_key: Option<String>,
+
+    /// Preferred Chat Model (e.g., "gemini-1.5-pro-latest")
+    #[serde(default = "default_chat_model")]
+    pub chat_model: String,
+}
+
+/// Whisper transcription parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhisperParamsSettings {
+    /// Number of candidates to consider for each segment (greedy decoding)
+    #[serde(default = "default_best_of")]
+    pub best_of: i32,
+    // Add other whisper parameters here as needed (e.g., temperature, beam_size)
+}
+
+fn default_best_of() -> i32 {
+    1 // Default best_of for greedy strategy
 }
 
 /// Speech recognition settings
@@ -117,6 +158,18 @@ pub enum WhisperModelSize {
     Large,
 }
 
+impl fmt::Display for WhisperModelSize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WhisperModelSize::Tiny => write!(f, "tiny"),
+            WhisperModelSize::Base => write!(f, "base"),
+            WhisperModelSize::Small => write!(f, "small"),
+            WhisperModelSize::Medium => write!(f, "medium"),
+            WhisperModelSize::Large => write!(f, "large"),
+        }
+    }
+}
+
 impl Default for WhisperModelSize {
     fn default() -> Self {
         Self::Small
@@ -131,6 +184,8 @@ impl Default for Config {
                 theme: "system".to_string(),
                 auto_start: false,
                 minimize_to_tray: true,
+                auto_transcribe: default_true(), // Use default fn
+                offline_mode: default_true(),    // Use default fn
             },
             audio: AudioSettings {
                 input_device: None,
@@ -149,6 +204,8 @@ impl Default for Config {
                 },
                 voice_commands: VoiceCommandConfig::default(),
             },
+            ai: AiSettings::default(),
+            whisper_params: WhisperParamsSettings::default(),
         }
     }
 }
@@ -445,14 +502,21 @@ impl ConfigManager {
     
     /// Save the configuration to disk
     pub fn save(&self) -> Result<()> {
-        let config_str = serde_json::to_string_pretty(&self.config)
+        info!("Attempting to save configuration to {:?}", self.config_file);
+        // Ensure config directory exists
+        if let Some(parent) = self.config_file.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create config directory: {:?}", parent))?;
+        }
+        
+        // Serialize and save
+        let config_json = serde_json::to_string_pretty(&self.config)
             .context("Failed to serialize configuration")?;
-        
-        fs::write(&self.config_file, config_str)
-            .context("Failed to write configuration file")?;
-        
-        info!("Configuration saved successfully");
-        
+            
+        fs::write(&self.config_file, config_json)
+            .with_context(|| format!("Failed to write config file: {:?}", self.config_file))?;
+            
+        info!("Configuration saved successfully.");
         Ok(())
     }
     

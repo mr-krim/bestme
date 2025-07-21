@@ -14,7 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, EndPaint, PAINTSTRUCT, GetStockObject, WHITE_BRUSH, HBRUSH,
     CreateFontA, SelectObject, SetTextColor, SetBkMode, TRANSPARENT, HGDIOBJ,
-    DrawTextA, DeleteObject, DT_LEFT, DT_TOP, FW_NORMAL,
+    DrawTextA, DeleteObject, DT_LEFT, DT_TOP,
     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
     CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, FF_DONTCARE,
 };

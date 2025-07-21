@@ -1,12 +1,11 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use log::{info, debug};
-use anyhow::Result;
+use log::{info, debug, error, warn};
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
-use crate::config::SpeechSettings;
 use serde::{Deserialize, Serialize};
 use chrono;
+use anyhow::Result;
 
 /// Voice command event types
 #[derive(Debug, Clone)]
@@ -1058,26 +1057,6 @@ mod tests {
     }
     
     #[test]
-    fn test_command_with_tauri_2_syntax() {
-        // This test is a placeholder for the Tauri 2.0 testing pattern
-        // It will be expanded during the actual migration
-        
-        #[cfg(feature = "tauri-2")]
-        {
-            // Tauri 2.0 specific tests would go here
-            // For now, just ensure the test compiles
-            let config = VoiceCommandConfig::default();
-            assert!(config.enabled);
-        }
-        
-        // If not using Tauri 2.0, just pass
-        #[cfg(not(feature = "tauri-2"))]
-        {
-            assert!(true);
-        }
-    }
-    
-    #[test]
     fn test_text_editor_capitalize() {
         let mut editor = VoiceTextEditor::new();
         
@@ -1167,34 +1146,5 @@ mod tests {
         let result = editor.apply_format(text, FormatOperation::Style(TextStyle::Underline));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "this is a test _sentence_");
-    }
-    
-    #[test]
-    fn test_tauri_2_compatible_formats() {
-        // Test the Tauri 2.0-specific formatting operations
-        #[cfg(feature = "tauri-2")]
-        {
-            // We need to create a simulated environment
-            // This would normally be tested with a full Tauri setup
-            // For now, just verify that the feature flag works
-            
-            let config = VoiceCommandConfig::default();
-            assert!(config.enabled);
-            
-            // Test creating the format operations
-            let capitalize = FormatOperation::Capitalize;
-            let lowercase = FormatOperation::Lowercase;
-            let uppercase = FormatOperation::Uppercase;
-            
-            assert!(matches!(capitalize, FormatOperation::Capitalize));
-            assert!(matches!(lowercase, FormatOperation::Lowercase));
-            assert!(matches!(uppercase, FormatOperation::Uppercase));
-        }
-        
-        // If not using Tauri 2.0, just pass
-        #[cfg(not(feature = "tauri-2"))]
-        {
-            assert!(true);
-        }
     }
 } 

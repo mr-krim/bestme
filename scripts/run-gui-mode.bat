@@ -1,4 +1,9 @@
 @echo off
+REM Windows GUI Mode Script for BestMe
+
+SET RUST_LOG=debug
+cargo run --features tauri-2 -- --gui
+
 REM BestMe GUI Mode Launch Script
 REM This script ensures the application runs in GUI mode and stays visible
 

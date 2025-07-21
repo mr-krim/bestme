@@ -1,11 +1,13 @@
 use anyhow::Result;
 use cpal::traits::{HostTrait, DeviceTrait, StreamTrait};
+use cpal::DeviceNameError;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 use super::AudioConfig;
+use crate::config::ConfigManager;
 
 /// Size of the ring buffer for audio samples
 #[allow(dead_code)]
@@ -116,7 +118,10 @@ unsafe impl Sync for AudioData {}
 
 /// Audio capture manager
 pub struct CaptureManager {
-    /// Audio configuration
+    /// Shared application configuration
+    config_manager: Arc<Mutex<ConfigManager>>,
+
+    /// Local audio configuration (sample rate, etc.) - might be redundant later
     config: AudioConfig,
     
     /// Current audio stream
@@ -140,11 +145,12 @@ pub struct CaptureManager {
 
 impl CaptureManager {
     /// Create a new capture manager
-    pub fn new() -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
+    pub fn new(config_manager: Arc<Mutex<ConfigManager>>) -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
         // Create a channel for audio events
         let (event_sender, event_receiver) = mpsc::channel(100);
         
         let manager = Self {
+            config_manager,
             config: AudioConfig::default(),
             audio_stream: None,
             peak_level: Arc::new(Mutex::new(0.0)),
@@ -167,11 +173,36 @@ impl CaptureManager {
         self.audio_data_callback = Some(Arc::new(callback));
     }
     
-    /// Set the audio device
-    pub fn set_device(&mut self, device: cpal::Device) {
-        // Update device name in config
-        if let Ok(name) = device.name() {
-            self.config.input_device = Some(name);
+    /// Finds the appropriate input device based on configuration or default.
+    fn find_input_device(host: &cpal::Host, desired_device_id: &Option<String>) -> Result<cpal::Device> {
+        match desired_device_id {
+            Some(id_str) => {
+                debug!("Attempting to find configured input device ID: {}", id_str);
+                host.input_devices()? // Get iterator of input devices
+                    .find(|d| {
+                        // Compare device ID string
+                        match d.id() { // Use the new id() method
+                            Ok(dev_id) => dev_id.to_string() == *id_str,
+                            Err(e) => {
+                                warn!("Failed to get ID for a device: {}", e);
+                                false
+                            }
+                        }
+                    })
+                    .ok_or_else(|| {
+                        warn!("Configured input device ID '{}' not found. Falling back to default.", id_str);
+                        anyhow::anyhow!("Configured input device ID '{}' not found", id_str)
+                    })
+                    .or_else(|_err| { // Fallback if specific device not found
+                        debug!("Falling back to default input device.");
+                        host.default_input_device().ok_or_else(|| anyhow::anyhow!("No default input device available"))
+                    })
+            }
+            None => {
+                debug!("No input device configured. Using default input device.");
+                host.default_input_device()
+                    .ok_or_else(|| anyhow::anyhow!("No input device configured and no default available"))
+            }
         }
     }
     
@@ -182,31 +213,18 @@ impl CaptureManager {
             return Ok(());
         }
         
-        // Find the device
+        // Get desired device ID from global config
+        let desired_device_id = self.config_manager.lock().get_config().audio.input_device.clone();
+
+        // Find the device using the helper function
         let host = cpal::default_host();
-        let device = if let Some(device_name) = &self.config.input_device {
-            // Try to find device by name
-            let devices = host.input_devices()?;
-            let mut found_device = None;
-            
-            for device in devices {
-                if let Ok(name) = device.name() {
-                    if name == *device_name {
-                        found_device = Some(device);
-                        break;
-                    }
-                }
-            }
-            
-            found_device.unwrap_or_else(|| host.default_input_device()
-                .expect("No input device available"))
-        } else {
-            // Use default device
-            host.default_input_device()
-                .ok_or_else(|| anyhow::anyhow!("No default input device"))?
-        };
+        let device = Self::find_input_device(&host, &desired_device_id)?;
         
-        info!("Using audio device: {}", device.name()?);
+        // Log the name of the device being used
+        match device.name() {
+            Ok(name) => info!("Using audio input device: {}", name),
+            Err(e) => warn!("Could not get name for selected audio device: {}", e),
+        }
         
         // Get a config we can use
         let config = match device.default_input_config() {
@@ -402,14 +420,79 @@ pub struct ThreadedCaptureManager {
 }
 
 impl ThreadedCaptureManager {
-    pub fn create_threaded() -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
-        CaptureManager::create_threaded()
+    /// Create a new capture manager in a separate thread
+    pub fn create_threaded(config_manager: Arc<Mutex<ConfigManager>>) -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
+        let (command_sender, mut command_receiver) = mpsc::channel::<CaptureCommand>(10);
+        
+        // Clone config_manager for the thread
+        let thread_config_manager = config_manager.clone();
+
+        // Create event channel for the new manager
+        let (event_sender_clone, event_receiver) = mpsc::channel(100);
+        
+        std::thread::spawn(move || {
+            // Create the actual CaptureManager inside the thread
+            let (mut manager, _) = match CaptureManager::new(thread_config_manager) {
+                Ok((mut m, _)) => {
+                    // Use the event sender created outside the thread
+                    m.event_sender = event_sender_clone;
+                    (m, event_receiver) // Keep the original receiver logic if needed elsewhere
+                },
+                Err(e) => {
+                    error!("Failed to create CaptureManager in thread: {}", e);
+                    // How to signal error back? Perhaps send an Error event?
+                    // For now, just exit thread
+                    return;
+                }
+            };
+            
+            info!("Audio capture thread started.");
+
+            // Event loop for commands
+            while let Some(command) = command_receiver.blocking_recv() { // Use blocking_recv in dedicated thread
+                match command {
+                    CaptureCommand::Start => {
+                        if let Err(e) = manager.start() {
+                            error!("Failed to start capture: {}", e);
+                            // Send error event?
+                        }
+                    }
+                    CaptureCommand::Stop => {
+                        if let Err(e) = manager.stop() {
+                            error!("Failed to stop capture: {}", e);
+                            // Send error event?
+                        }
+                    }
+                    CaptureCommand::SetDevice(device) => {
+                        // This command might be less useful now, device is set on start based on config
+                        warn!("SetDevice command received but may be ignored (device set via config on start).");
+                        // manager.set_device(device); // Original logic if needed
+                    }
+                    CaptureCommand::SetPeakCallback(callback) => {
+                        manager.peak_level_callback = Some(Arc::from(callback));
+                    }
+                    CaptureCommand::SetAudioCallback(callback) => {
+                        manager.audio_data_callback = Some(Arc::from(callback));
+                    }
+                    CaptureCommand::Exit => {
+                        info!("Audio capture thread exiting.");
+                        let _ = manager.stop(); // Ensure stream is stopped
+                        break;
+                    }
+                }
+            }
+             info!("Audio capture thread finished.");
+        });
+        
+        Ok((Self { command_sender }, event_receiver))
     }
     
-    pub fn create_from_capture_manager() -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
-        Self::create_threaded()
+    // Keep this potentially deprecated version if needed, but update it too
+    pub fn create_from_capture_manager(config_manager: Arc<Mutex<ConfigManager>>) -> Result<(Self, mpsc::Receiver<AudioEvent>)> {
+         warn!("Using deprecated create_from_capture_manager. Prefer create_threaded.");
+         Self::create_threaded(config_manager)
     }
-    
+
     pub fn start(&self) -> Result<()> {
         self.command_sender.blocking_send(CaptureCommand::Start)
             .map_err(|e| anyhow::anyhow!("Failed to send start command: {}", e))
@@ -490,5 +573,80 @@ impl CaptureManager {
         });
         
         Ok((ThreadedCaptureManager { command_sender: cmd_sender }, event_receiver))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Config, ConfigManager};
+    use cpal::traits::HostTrait;
+    use std::sync::Arc;
+    use parking_lot::Mutex;
+    use tempfile::tempdir;
+
+    // Helper to create a mock ConfigManager for tests
+    fn create_mock_config_manager() -> Arc<Mutex<ConfigManager>> {
+        // Create a dummy config file path within a temp directory
+        let temp_dir = tempdir().expect("Failed to create temp dir for config");
+        let config_path = temp_dir.path().join("test_config.json");
+        
+        // Create a default config instance
+        let mut config = Config::default();
+        
+        // Use a simplified ConfigManager creation for testing purposes
+        // Avoids ProjectDirs issues in test environment
+        let manager = ConfigManager::from_config_and_path(config, temp_dir.path().to_path_buf(), config_path);
+        Arc::new(Mutex::new(manager))
+    }
+
+    #[test]
+    fn test_find_input_device() {
+        let host = cpal::default_host();
+        let default_device_result = host.default_input_device();
+
+        // Test case 1: No device specified (should return default)
+        let desired_none: Option<String> = None;
+        let found_device_none = CaptureManager::find_input_device(&host, &desired_none);
+        
+        if let Ok(default_device) = default_device_result.as_ref() {
+            assert!(found_device_none.is_ok());
+            // Compare names as a basic check (IDs might be less stable)
+             assert_eq!(found_device_none.unwrap().name().ok(), default_device.name().ok());
+        } else {
+            // If no default device exists on system, finding should also fail
+            assert!(found_device_none.is_err());
+             println!("No default input device found on system for testing.");
+        }
+
+        // Test case 2: Invalid device ID specified (should fallback to default or error if no default)
+        let desired_invalid = Some("invalid-device-id-12345".to_string());
+        let found_device_invalid = CaptureManager::find_input_device(&host, &desired_invalid);
+
+        if let Ok(default_device) = default_device_result.as_ref() {
+            assert!(found_device_invalid.is_ok());
+            // Check it fell back to default
+             assert_eq!(found_device_invalid.unwrap().name().ok(), default_device.name().ok());
+        } else {
+            // If no default device, fallback should also fail
+            assert!(found_device_invalid.is_err());
+        }
+
+        // Test case 3: Specify the default device ID explicitly (should find it)
+        if let Ok(default_device) = default_device_result {
+            if let Ok(default_id) = default_device.id() { // Use id() method
+                 let desired_default_id = Some(default_id.to_string());
+                 let found_device_default = CaptureManager::find_input_device(&host, &desired_default_id);
+                 assert!(found_device_default.is_ok());
+                  assert_eq!(found_device_default.unwrap().name().ok(), default_device.name().ok());
+             } else {
+                 println!("Could not get ID for default device, skipping explicit default ID test.");
+             }
+        } else {
+             println!("No default input device found, skipping explicit default ID test.");
+        }
+
+        // Note: Testing with a *specific* non-default valid ID is difficult 
+        // as it depends on the devices available on the test machine.
     }
 } 

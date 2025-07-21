@@ -4,7 +4,9 @@
     "target": "ESNext",
     "useDefineForClassFields": true,
     "module": "ESNext",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
+    "types": ["vitest/globals"],
     "allowJs": true,
     "checkJs": true,
     "isolatedModules": true

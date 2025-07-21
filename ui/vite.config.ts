@@ -1,9 +1,23 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
+import sveltePreprocess from 'svelte-preprocess'
 
 // https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [svelte()],
+export default defineConfig(async () => ({
+  plugins: [svelte({ 
+    preprocess: sveltePreprocess({ typescript: true }) // Enable TypeScript preprocessing
+  })],
+
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    include: ['src/**/*.{test,spec}.{js,ts}'],
+    deps: {
+      // Ensure svelte-toast is processed by Vitest's transforms
+      inline: ['svelte-toast'] 
+    }
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   // prevent vite from obscuring rust errors
@@ -24,4 +38,4 @@ export default defineConfig({
     // produce sourcemaps for debug builds
     sourcemap: !!process.env.TAURI_DEBUG,
   },
-}) 
+}))

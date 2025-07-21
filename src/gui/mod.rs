@@ -1,10 +1,11 @@
-pub mod icons;
-pub mod settings;
-pub mod tray;
-pub mod window;
+// GUI module for the application
+mod tray;
+mod window;
+mod settings;
+mod icons;
 
 use anyhow::Result;
-use log::{info, warn};
+use log::info;
 use parking_lot::Mutex;
 use std::sync::Arc;
 

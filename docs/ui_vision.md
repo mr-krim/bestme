@@ -1,236 +1,121 @@
-# BestMe UI Vision and Implementation Plan
+# BestMe UI Vision & Progress
 
-This document outlines the comprehensive UI design and implementation strategy for BestMe across Windows and macOS platforms.
+## 1. Core Application Structure (Completed)
 
-## Overall Layout Structure
+*   **Layout:**
+    *   Three-panel design: Left (Navigation), Middle (Context-aware lists), Main (Active content).
+    *   Top bar: Global actions (recording, model/language selection, settings access).
+    *   Bottom bar: Status information (version, online status, system metrics).
+*   **Navigation:**
+    *   `LeftPanel` items control `activePanel` state in `App.svelte`.
+    *   `MiddlePanel` items control `selectedItemId` state in `App.svelte`.
+*   **State Persistence:**
+    *   `activePanel` and `selectedItemId` persisted to `localStorage`.
+*   **Styling & Theme:**
+    *   Basic light/dark theme switching implemented.
+    *   CSS variables for theming.
 
-### Three-Panel Layout
-```
-+----------------+-------------------+-------------------------------+
-| Main Functions | Chat/History List |                               |
-| (Navigation)   | (Context)         |       Main Content Area       |
-|                |                   |    (Transcription + Chat)     |
-|                |                   |                               |
-|                |                   |                               |
-|                |                   |                               |
-|                |                   |                               |
-+----------------+-------------------+-------------------------------+
-|               Status Bar / Control Center / Metrics                |
-+-------------------------------------------------------------------|
-```
+## 2. Component Implementation (Ongoing)
 
-## Key Components Design
+*   **Core Shell:**
+    *   `App.svelte`: Main application component, manages state, panel transitions (slide), and event handling.
+*   **Layout Components:**
+    *   `LeftPanel.svelte`: Navigation.
+    *   `MiddlePanel.svelte`: Displays lists based on `activePanel`.
+    *   `MainPanel.svelte`: Displays content based on `activePanel` and `selectedItem`.
+    *   `TopBar.svelte`: Implemented with placeholders for model/language.
+    *   `BottomBar.svelte` (formerly `StatusBar.svelte`): Displays system info.
+*   **View Components (Content for MainPanel):**
+    *   `TranscriptionView.svelte`: Basic placeholder for live transcription.
+    *   `ChatView.svelte`: Basic structure for chat interface.
+    *   `SettingsView.svelte`: Fetches and saves settings.
+    *   `SavedTranscriptView.svelte`: **Newly created** to display details of a selected saved transcript (title, date, content) and includes a delete button. Implemented in `ui/src/views/SavedTranscriptView.svelte`.
 
-### Left Panel: Core Navigation
-- **Transcription Mode** - Primary speech-to-text functionality
-- **Chat Mode** - AI-assisted conversation interface
-- **Voice Commands** - Configure and view available commands
-- **Settings** - Less frequently accessed than quick settings
-- **Saved Transcripts** - History and saved content
-- **Devices** - Audio device management
-- **Help & Documentation**
+## 3. Backend Integration (Partial)
 
-### Middle Panel: Context-Aware Content
-- In **Transcription Mode**: Shows recent transcription sessions
-- In **Chat Mode**: Shows conversation history with different AI assistants
-- In **Voice Commands**: Shows command categories and recently used commands
-- Collapsible to maximize main content area when needed
+*   **System Monitoring (Implemented):**
+    *   `get_cpu_usage`, `get_memory_usage` (Rust/sysinfo) called by `App.svelte` and data passed to `BottomBar.svelte`.
+*   **Configuration & Lists (Implemented):**
+    *   `get_settings`, `save_all_settings`, `get_audio_devices`, `get_whisper_models`, `get_supported_languages` (Rust) used by `SettingsView.svelte` and `TopBar.svelte`.
+*   **Online Status (Implemented):**
+    *   `get_online_status` (Rust placeholder) called periodically by `App.svelte`.
+*   **Transcription Lifecycle (Event-driven stubs):**
+    *   `start_transcription`, `stop_transcription` invoke calls.
+    *   Event listeners for `transcription:update`, `transcription:clear`, `transcribe:error`, `transcribe:started`, `transcribe:stopped`.
+*   **Saved Transcripts (CRUD operations - partial):**
+    *   `get_saved_transcript_list`: Fetches list for `MiddlePanel`.
+    *   `get_saved_transcript`: **Implemented** in `App.svelte` to fetch full content for a selected item.
+    *   `save_transcript`: Implemented.
+    *   `delete_saved_transcript`: Implemented.
+*   **Chat Sessions (CRUD operations - partial):**
+    *   `get_chat_session_list`: Fetches list for `MiddlePanel`.
+    *   `get_chat_session`: Fetches messages for a selected chat.
+    *   `send_chat_message`: Implemented.
+    *   `delete_chat_session`: Implemented.
 
-### Main Panel: Active Content
-- **Transcription View**: Real-time transcription with confidence indicators
-- **Chat Interface**: AI conversation with message bubbles
-- **Split View Option**: Transcribe and chat simultaneously
-- **Visual Audio Indicators**: Waveform/spectrum visualization during recording
+## 4. Data Flow & State Management (Ongoing)
 
-### Top Bar: Quick Actions
-- **Microphone Toggle**: Start/stop recording with visual indicator
-- **AI Assistant Selector**: Switch between different AI models
-- **Language Selector**: Change transcription language
-- **Quick Settings**: Most common adjustments (model size, auto-punctuate)
-- **Theme Toggle**: Light/dark mode switch
+*   `App.svelte` acts as the central state manager.
+*   Props down, events up for inter-component communication.
+*   Reactive statements (`$:`) for deriving state and triggering data fetching:
+    *   `middlePanelItems` reloaded when `activePanel` changes.
+    *   `selectedItem` derived from `selectedItemId` and `middlePanelItems`.
+    *   `selectedTranscriptContent` fetched when `selectedItemId` changes and `activePanel` is 'saved-transcripts'.
+    *   `currentChatMessages` fetched when `selectedItemId` changes and `activePanel` is 'chat'.
+*   `MainPanel.svelte` now receives `selectedItem` and `selectedTranscriptContent` to display details, specifically for `SavedTranscriptView`.
 
-### Bottom Bar: System Information
-- **App Version**: Current version with update notification
-- **UI Mode Selector**: Toggle between User/Power User/Advanced views
-- **System Resource Usage**: CPU/RAM visualization
-- **Transcription Status**: Words processed, accuracy metrics
-- **Connection Status**: Online/offline indicator for AI services
+## 5. Testing (Setup & Initial Tests - Needs Attention)
 
-## Implementation Approach
+*   **Framework:** Vitest and Svelte Testing Library.
+*   **Configuration:** `vite.config.ts` and `tsconfig.json` updated for tests.
+*   **Mocking:** Tauri `invoke` and `listen` are mocked; `localStorage` is mocked.
+*   **Existing Tests:**
+    *   `App.test.ts`: Initial rendering, panel switching, localStorage interaction, item selection reset.
+    *   `LeftPanel.test.ts`: Rendering and event dispatch.
+    *   `TopBar.test.ts`: Basic rendering.
+*   **Current Status: Tests are failing.** Failures were observed in `App.test.ts`, `LeftPanel.test.ts` (implicitly via App), and `TopBar.test.ts`. Issues seem related to elements not being found, possibly due to async operations, mocking, or recent component changes not yet reflected correctly in tests or component logic.
 
-### Hybrid Strategy
-To implement this while maintaining our cross-platform roadmap:
+## 6. Refactoring & General Improvements (Ongoing)
 
-1. **Windows Implementation**: 
-   - Extend the current `TranscriptionWindow` with a more complex layout
-   - Use the Windows API's docking window capabilities
-   - Implement custom drawing for the UI components
-   - Add resource monitoring via Windows Management Instrumentation (WMI)
+*   `.gitignore` updated.
+*   Type safety improvements with `src/types.ts`.
+*   Accessibility improvements (ARIA roles, keyboard navigation on clickable divs).
 
-```rust
-// Example structure for enhanced window.rs with multi-panel support
-pub struct MultiPanelWindow {
-    hwnd: HWND,
-    left_panel: Panel,
-    middle_panel: Panel,
-    main_panel: Panel,
-    top_bar: Panel,
-    bottom_bar: Panel,
-    // other fields
-}
-```
+## 7. Current Focus & Next Steps
 
-2. **macOS Implementation**:
-   - Use Cocoa's NSWindow with NSStackView for layout
-   - Leverage NSOutlineView for the navigation panel
-   - Implement NSTableView for the middle panel
-   - Use CoreAnimation for smooth transitions and effects
+**Immediate Priority: Stabilize and Fix Tests**
 
-```rust
-// Example for macOS using Cocoa bindings
-#[cfg(target_os = "macos")]
-pub struct MultiPanelWindow {
-    window: id, // NSWindow
-    left_panel: id, // NSView
-    middle_panel: id, // NSView
-    main_panel: id, // NSView
-    // other fields
-}
-```
+1.  **Resolve Linter Errors:**
+    *   **`ui/src/components/MainPanel.svelte`**: Address "Expected }" error (around Lines 88-89 in the template for `SavedTranscriptView`). This is critical as it's causing a cascading "no default export" error.
+    *   **`ui/src/App.svelte`**: The "Module ... MainPanel.svelte has no default export" error (Line 13) should resolve once `MainPanel.svelte` is fixed.
+2.  **Verify `SavedTranscriptView` Integration:**
+    *   Manually run the application (`npm run tauri dev` in the `ui` directory or root if configured) to confirm that selecting a saved transcript correctly displays its title, date, and content in the `MainPanel` via `SavedTranscriptView`.
+    *   Test the delete functionality from `SavedTranscriptView`.
+3.  **Address Test Failures Systematically (After Linter Errors are Fixed):**
+    *   Run `npm test` (in the `ui` directory).
+    *   **`App.test.ts` failures:**
+        *   `renders default panel (Transcription) on initial load`: Investigate why "Your transcription will appear here..." and "Recent Transcriptions" are not found.
+        *   `switches panel to Chat...`: Investigate why chat-specific elements are not found.
+        *   `loads initial panel from localStorage...`: Investigate why "Saved Transcripts" heading isn't found.
+        *   Ensure `waitFor` is used effectively and mock responses for `invoke` cover all necessary commands triggered during these tests, especially list fetching for different panels.
+    *   **`TopBar.test.ts` failure:**
+        *   `renders without errors`: Fix the "Unable to find an accessible element with the role 'combobox' and name /whisper model/i" error. Ensure select elements have proper ARIA labels if not implicitly provided by a visible `<label>`.
+    *   Review tests for `LeftPanel.test.ts` if failures persist after `App.test.ts` fixes.
+4.  **Run `npm test`** again after fixes to confirm all tests pass.
 
-3. **Shared Logic Layer**:
-   - Create platform-agnostic state management
-   - Implement consistent event handling
-   - Define common UI component behaviors
+**Once Tests are Green:**
 
-```rust
-pub struct AppState {
-    active_panel: PanelType,
-    recording_status: RecordingStatus,
-    chat_history: Vec<ChatMessage>,
-    transcription_history: Vec<TranscriptionSession>,
-    // other shared state
-}
-```
+5.  **Continue UI Implementation based on original vision and user priorities:**
+    *   Implement `VoiceCommandView.svelte` and integrate into `MainPanel.svelte`.
+    *   Implement any missing functionality in existing views (e.g., editing saved transcripts, advanced settings tabs).
+    *   Flesh out placeholder functionality (e.g., actual transcription, voice command processing).
+6.  **Iteratively Develop and Test:**
+    *   Run the application frequently to catch runtime errors.
+    *   Write new tests for new features and components.
 
-## Transition to Tauri (Future-Proof Approach)
+## Open Questions / Future Considerations:
 
-For long-term cross-platform consistency, we'll:
-
-1. Build the Tauri frontend in parallel:
-   ```
-   ui/
-   ├── src/
-   │   ├── components/
-   │   │   ├── LeftPanel.svelte
-   │   │   ├── MiddlePanel.svelte
-   │   │   ├── MainPanel.svelte
-   │   │   ├── TopBar.svelte
-   │   │   └── BottomBar.svelte
-   │   ├── views/
-   │   │   ├── TranscriptionView.svelte
-   │   │   └── ChatView.svelte
-   │   └── App.svelte
-   ```
-
-2. Design responsive components that adapt to three UI modes:
-   - **User Mode**: Simplified interface with fewer options
-   - **Power User**: More controls and customization options
-   - **Advanced**: Full feature set with technical settings
-
-3. Create platform-specific styling using CSS variables:
-   ```css
-   :root {
-     /* Windows-specific styles */
-     --primary-font: 'Segoe UI', sans-serif;
-     --window-border-radius: 4px;
-   }
-   
-   @media (platform: macos) {
-     :root {
-       /* macOS-specific styles */
-       --primary-font: -apple-system, BlinkMacSystemFont, sans-serif;
-       --window-border-radius: 10px;
-     }
-   }
-   ```
-
-## Visual Enhancements
-
-1. **Transition Effects**: Add subtle animations for panel resizing and view changes
-2. **Speech Visualization**: Real-time waveform display while recording
-3. **Color-coded Confidence**: Highlight transcribed words based on confidence level
-4. **Adaptive Theme**: Match system dark/light mode preferences
-5. **Variable Density Display**: Adjust information density based on UI mode
-
-## Implementation Phases
-
-### Phase 1: Windows Prototype (Current Priority)
-1. Enhance the existing `TranscriptionWindow` with multi-panel layout
-2. Implement panel creation and management
-3. Create the basic navigation structure
-4. Add transcription view with improved visuals
-5. Implement system resource monitoring
-
-```rust
-// Example implementation steps for Windows
-impl MultiPanelWindow {
-    pub fn new(config_manager: Arc<Mutex<ConfigManager>>, device_manager: Arc<DeviceManager>) -> Result<Self> {
-        // Initialize window with multi-panel layout
-        // Create child windows for each panel
-        // Set up event handling
-    }
-    
-    fn create_panels(&mut self) -> Result<()> {
-        // Create and position each panel
-        self.left_panel = self.create_panel(PanelType::Navigation)?;
-        self.middle_panel = self.create_panel(PanelType::Context)?;
-        self.main_panel = self.create_panel(PanelType::Content)?;
-        // Create top and bottom bars
-    }
-}
-```
-
-### Phase 2: Core Functionality
-1. Implement transcription visualization
-2. Add AI chat integration
-3. Develop voice command interface
-4. Create settings panel
-5. Build history and saved content management
-
-### Phase 3: macOS Implementation
-1. Create Cocoa-based UI implementation
-2. Apply macOS-specific design patterns and interactions
-3. Ensure feature parity with Windows version
-4. Test on various macOS versions
-
-### Phase 4: Tauri Integration
-1. Develop web-based UI components
-2. Create responsive layouts for all screen sizes
-3. Implement platform-specific styling
-4. Bridge Rust backend functionality to frontend
-5. Transition to hybrid native/web approach
-
-## Performance Considerations
-
-1. **Efficient Rendering**: Use hardware acceleration where available
-2. **Memory Management**: Optimize resource usage for transcription and AI models
-3. **Lazy Loading**: Load UI components on demand
-4. **Background Processing**: Handle intensive tasks in separate threads
-5. **Resource Monitoring**: Track and optimize system resource usage
-
-## Accessibility Features
-
-1. **Keyboard Navigation**: Full keyboard control for all functions
-2. **Screen Reader Support**: Proper labeling for assistive technologies
-3. **High Contrast Mode**: Support for system accessibility settings
-4. **Font Scaling**: Respect system font size settings
-5. **Focus Indicators**: Clear visual cues for keyboard focus
-
-## Next Steps
-
-1. Create a prototype of the multi-panel Windows UI
-2. Implement navigation and panel switching
-3. Add basic transcription visualization
-4. Integrate system monitoring
-5. Begin parallel development of Tauri components 
+*   Move helper functions (like `formatDate` from `SavedTranscriptView.svelte`) to utility files (e.g., `src/utils.ts`).
+*   Consider a more robust state management solution if `App.svelte` becomes too complex (e.g., Svelte stores).
+*   Detailed error handling and user feedback for all backend interactions.
+*   Full implementation of all backend commands currently stubbed.

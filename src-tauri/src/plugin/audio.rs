@@ -8,11 +8,13 @@ use std::marker::PhantomData;
 
 use bestme::audio::device::DeviceManager;
 use bestme::audio::capture::{CaptureManager, ThreadedCaptureManager, AudioData, AudioEvent};
+use bestme::config::ConfigManager;
 
 use crate::plugin::TranscribeState;
 
 // Structure to hold our audio state
 pub struct AudioState {
+    config_manager: Arc<Mutex<ConfigManager>>,
     device_manager: Arc<Mutex<DeviceManager>>,
     capture_manager: Arc<Mutex<Option<ThreadedCaptureManager>>>,
     event_receiver: Arc<Mutex<Option<mpsc::Receiver<AudioEvent>>>>,
@@ -20,11 +22,13 @@ pub struct AudioState {
     is_recording: Arc<Mutex<bool>>,
     peak_level: Arc<Mutex<f32>>,
     selected_device: Arc<Mutex<Option<String>>>,
+    app_handle: Option<AppHandle>,
 }
 
 impl AudioState {
-    pub fn new(device_manager: Arc<Mutex<DeviceManager>>) -> Self {
+    pub fn new(config_manager: Arc<Mutex<ConfigManager>>, device_manager: Arc<Mutex<DeviceManager>>) -> Self {
         Self {
+            config_manager,
             device_manager,
             capture_manager: Arc::new(Mutex::new(None)),
             event_receiver: Arc::new(Mutex::new(None)),
@@ -32,6 +36,7 @@ impl AudioState {
             is_recording: Arc::new(Mutex::new(false)),
             peak_level: Arc::new(Mutex::new(0.0)),
             selected_device: Arc::new(Mutex::new(None)),
+            app_handle: None,
         }
     }
     
@@ -39,65 +44,43 @@ impl AudioState {
         self.transcribe_state = Some(transcribe_state);
     }
 
-    pub fn start_recording(&self, device_name: &str) -> Result<()> {
-        info!("Starting audio recording with device: {}", device_name);
+    pub fn start_recording(&self) -> Result<()> {
+        info!("Attempting to start audio recording using configured device...");
 
-        // Get the device
-        let device = {
-            let device_manager = self.device_manager.lock();
-            let devices = device_manager.list_devices()
-                .map_err(|e| anyhow::anyhow!("Failed to list devices: {}", e))?;
-            
-            let device = devices.into_iter()
-                .find(|d| d.name().map(|n| n == device_name).unwrap_or(false))
-                .ok_or_else(|| anyhow::anyhow!("Device '{}' not found", device_name))?;
-            
-            device
-        };
-        
-        // Get or create the capture manager
         let manager = {
-            let mut cm = self.capture_manager.lock();
+            let mut cm_lock = self.capture_manager.lock();
             
-            if cm.is_none() {
-                let (manager, receiver) = ThreadedCaptureManager::create_from_capture_manager()?;
+            if cm_lock.is_none() {
+                info!("Creating new ThreadedCaptureManager instance.");
+                let (manager, receiver) = ThreadedCaptureManager::create_threaded(self.config_manager.clone())?;
                 
-                // Store the event receiver
                 {
                     let mut er = self.event_receiver.lock();
                     *er = Some(receiver);
                 }
                 
-                // Process events
-                self.process_audio_events();
+                self.process_audio_events(); 
                 
-                *cm = Some(manager);
+                *cm_lock = Some(manager);
+            } else {
+                info!("Using existing ThreadedCaptureManager instance.");
             }
             
-            // Get a reference to create new manager
-            let cm_ref = cm.as_ref().unwrap();
-            ThreadedCaptureManager {
-                command_sender: cm_ref.get_command_sender()
-            }
+            cm_lock.as_ref().unwrap().clone_sender()
         };
         
-        // Set the device
-        manager.set_device(device)?;
-        
-        // Set up peak level callback
         let peak_level = Arc::clone(&self.peak_level);
         manager.on_peak_level(move |level| {
             let mut peak = peak_level.lock();
             *peak = level;
         })?;
         
-        // Set up audio data callback if we have a transcribe state
         if let Some(transcribe_state) = &self.transcribe_state {
             let audio_sender = transcribe_state.create_audio_channel();
             let audio_sender_clone = audio_sender.clone();
             
             manager.on_audio_data(move |audio_data| {
-                let sender = audio_sender_clone.clone();
+                let sender = audio_sender_clone.clone(); 
                 tokio::spawn(async move {
                     if let Err(e) = sender.send(audio_data).await {
                         error!("Failed to send audio data: {}", e);
@@ -106,19 +89,23 @@ impl AudioState {
             })?;
         }
         
-        // Start recording
         manager.start()?;
         
-        // Update recording state
         {
             let mut recording = self.is_recording.lock();
             *recording = true;
         }
         
-        // Store selected device
         {
-            let mut selected_device = self.selected_device.lock();
-            *selected_device = Some(device_name.to_string());
+            let config = self.config_manager.lock().get_config().clone();
+            let device_id_used = config.audio.input_device;
+            let mut selected_device_lock = self.selected_device.lock();
+            *selected_device_lock = device_id_used; 
+            if selected_device_lock.is_some() {
+                 info!("Recording started with device ID: {}", selected_device_lock.as_ref().unwrap());
+            } else {
+                 info!("Recording started with default device.");
+            }
         }
         
         Ok(())
@@ -127,7 +114,6 @@ impl AudioState {
     pub fn stop_recording(&self) -> Result<()> {
         info!("Stopping audio recording");
         
-        // Get the capture manager
         let manager = {
             let cm = self.capture_manager.lock();
             
@@ -139,16 +125,13 @@ impl AudioState {
             }
         };
         
-        // Stop recording
         manager.stop()?;
         
-        // Update recording state
         {
             let mut recording = self.is_recording.lock();
             *recording = false;
         }
         
-        // Reset peak level
         {
             let mut peak = self.peak_level.lock();
             *peak = 0.0;
@@ -165,139 +148,92 @@ impl AudioState {
         *self.is_recording.lock()
     }
     
-    // Process audio events from the event receiver
     fn process_audio_events(&self) {
-        let event_receiver = {
-            let mut er = self.event_receiver.lock();
-            er.take()
+        let event_receiver_option = {
+            let mut er_lock = self.event_receiver.lock();
+            er_lock.take()
         };
         
-        if let Some(mut receiver) = event_receiver {
+        if let Some(mut receiver) = event_receiver_option {
             let peak_level = Arc::clone(&self.peak_level);
             let is_recording = Arc::clone(&self.is_recording);
+            let app_handle = self.app_handle.clone();
             
-            // Start a task to process events
             tokio::spawn(async move {
+                info!("Audio event processing task started.");
                 while let Some(event) = receiver.recv().await {
+                    if let Some(handle) = &app_handle {
+                        let event_name = match event {
+                             AudioEvent::Level(_) | AudioEvent::LevelChanged(_) => "audio:level",
+                             AudioEvent::Error(_) => "audio:error",
+                             AudioEvent::Stopped => "audio:stopped",
+                             AudioEvent::Started => "audio:started",
+                             AudioEvent::Data(_) => continue,
+                        };
+                        let payload = match event {
+                            AudioEvent::Level(l) | AudioEvent::LevelChanged(l)=> Some(l),
+                            AudioEvent::Error(e) => Some(e),
+                            _ => None::<()>
+                        };
+                        if let Err(e) = handle.emit_all(event_name, payload) {
+                             error!("Failed to emit audio event '{}': {}", event_name, e);
+                        }
+                    } else {
+                        warn!("AppHandle not available in AudioState for emitting events.");
+                    }
+
                     match event {
-                        AudioEvent::Level(level) => {
-                            // Update peak level
+                        AudioEvent::Level(level) | AudioEvent::LevelChanged(level) => {
                             let mut peak = peak_level.lock();
                             *peak = level;
-                        },
-                        AudioEvent::LevelChanged(level) => {
-                            // Legacy compatibility for level changes
-                            let mut peak = peak_level.lock();
-                            *peak = level;
-                        },
-                        AudioEvent::Data(_) => {
-                            // Event already processed by the callback
                         },
                         AudioEvent::Error(err) => {
-                            error!("Audio error: {}", err);
+                            error!("Audio capture error: {}", err);
+                            let mut recording = is_recording.lock();
+                            *recording = false;
                         },
                         AudioEvent::Stopped => {
+                            info!("Audio capture stopped event received.");
                             let mut recording = is_recording.lock();
                             *recording = false;
                         },
                         AudioEvent::Started => {
-                            // Just log the event
-                            debug!("Audio recording started");
+                            debug!("Audio capture started event received.");
+                        },
+                        AudioEvent::Data(_) => {
                         }
                     }
                 }
+                info!("Audio event processing task finished.");
             });
+        } else {
+             warn!("Attempted to process audio events, but receiver was already taken or never existed.");
         }
     }
 
-    // Initialize the AudioState
     pub fn initialize(&self) -> Result<()> {
-        // Try to use default device
-        let default_device = {
-            let device_manager = self.device_manager.lock();
-            device_manager.get_default_input_device()
-                .ok_or_else(|| anyhow::anyhow!("No default input device found"))?
-        };
+        info!("Initializing AudioState and capture manager...");
+        let (capture_manager, receiver) = ThreadedCaptureManager::create_threaded(self.config_manager.clone())?;
         
-        // Create a threaded capture manager
-        let (capture_manager, receiver) = ThreadedCaptureManager::create_from_capture_manager()?;
-        
-        // Set the device
-        capture_manager.set_device(default_device.clone())?;
-        
-        // Set up a callback for peak level updates
-        let peak_level = Arc::clone(&self.peak_level);
-        capture_manager.on_peak_level(move |level| {
-            let mut peak = peak_level.lock();
-            *peak = level;
-        })?;
-        
-        // Set up audio data callback if we have a transcribe state
-        if let Some(ts) = &self.transcribe_state {
-            let sender = ts.create_audio_channel();
-            let sender_clone = sender.clone();
-            
-            capture_manager.on_audio_data(move |audio_data| {
-                let sender = sender_clone.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = sender.send(audio_data).await {
-                        error!("Failed to send audio data: {}", e);
-                    }
-                });
-            })?;
-        }
-        
-        // Store the capture manager
         {
-            let mut cm = self.capture_manager.lock();
-            *cm = Some(capture_manager);
+             let mut cm_lock = self.capture_manager.lock();
+             *cm_lock = Some(capture_manager);
+             let mut er_lock = self.event_receiver.lock();
+             *er_lock = Some(receiver);
         }
-        
-        // Store the event receiver and start processing events
-        {
-            let mut er = self.event_receiver.lock();
-            *er = Some(receiver);
-        }
-        
-        // Start event processing
+
         self.process_audio_events();
-        
+
+        info!("AudioState initialized.");
         Ok(())
     }
     
-    // Set the audio device
-    pub fn set_device(&self, device_id: &str) -> Result<()> {
-        // Get the device
-        let device = {
-            let device_manager = self.device_manager.lock();
-            device_manager.get_device_by_id(device_id)
-                .ok_or_else(|| anyhow::anyhow!("Device not found with ID: {}", device_id))?
-        };
-        
-        // Get the capture manager
-        let manager = {
-            let cm = self.capture_manager.lock();
-            
-            match cm.as_ref() {
-                Some(manager) => ThreadedCaptureManager { 
-                    command_sender: manager.get_command_sender()
-                },
-                None => {
-                    return self.initialize();
-                },
-            }
-        };
-        
-        // Set the device
-        manager.set_device(device)?;
-        
-        // Store selected device
-        {
-            let mut selected_device = self.selected_device.lock();
-            *selected_device = Some(device_id.to_string());
-        }
-        
-        Ok(())
+    pub fn clone_sender(&self) -> Option<mpsc::Sender<bestme::audio::capture::CaptureCommand>> {
+        self.capture_manager.lock().as_ref().map(|m| m.get_command_sender())
+    }
+
+    pub fn set_app_handle(&mut self, handle: AppHandle) {
+        self.app_handle = Some(handle);
     }
 }
 
@@ -321,24 +257,11 @@ impl tauri::Plugin for AudioPlugin {
     }
     
     fn initialize(&mut self, app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Initializing audio plugin");
-        
-        // Register the plugin with the app
-        app.plugin(
-            tauri::plugin::Builder::new("audio")
-                .js_init_script(include_str!("./audio_init.js"))
-                .setup(|app, _| {
-                    // Initialize the audio state if needed
-                    let audio_state = app.state::<Arc<Mutex<AudioState>>>();
-                    if let Err(e) = audio_state.lock().initialize() {
-                        error!("Failed to initialize audio state: {}", e);
-                    }
-                    
-                    Ok(())
-                })
-                .build(),
-        )?;
-        
+        info!("Initializing AudioPlugin...");
+        let audio_state = app.state::<Arc<Mutex<AudioState>>>();
+        audio_state.lock().set_app_handle(app.handle().clone());
+
+        info!("AudioPlugin initialized.");
         Ok(())
     }
 }
@@ -366,11 +289,9 @@ impl ThreadedCaptureManager {
 // Tauri 2.0 command handlers
 #[tauri::command]
 pub async fn start_recording(
-    device_name: String, 
     state: tauri::State<'_, Arc<Mutex<AudioState>>>
 ) -> Result<(), String> {
-    state.inner().lock().start_recording(&device_name)
-        .map_err(|e| e.to_string())
+    state.inner().lock().start_recording().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -387,35 +308,4 @@ pub async fn get_level(state: tauri::State<'_, Arc<Mutex<AudioState>>>) -> f32 {
 #[tauri::command]
 pub async fn is_recording(state: tauri::State<'_, Arc<Mutex<AudioState>>>) -> bool {
     state.inner().lock().is_recording()
-}
-
-#[tauri::command]
-pub async fn get_audio_devices(
-    state: tauri::State<'_, Arc<Mutex<AudioState>>>
-) -> Result<Vec<(String, String)>, String> {
-    let state = state.inner().lock();
-    let device_manager = state.device_manager.lock();
-    
-    let devices = device_manager.list_devices()
-        .map_err(|e| e.to_string())?;
-    
-    Ok(devices.into_iter()
-        .filter_map(|d| {
-            let id = d.id().to_string();
-            let name = match d.name() {
-                Ok(name) => name,
-                Err(_) => return None,
-            };
-            Some((id, name))
-        })
-        .collect())
-}
-
-#[tauri::command]
-pub async fn set_device(
-    device_id: String,
-    state: tauri::State<'_, Arc<Mutex<AudioState>>>
-) -> Result<(), String> {
-    state.inner().lock().set_device(&device_id)
-        .map_err(|e| e.to_string())
 } 

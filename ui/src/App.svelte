@@ -1,1283 +1,836 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api';
+  import { invoke } from '@tauri-apps/api/core';
+  import { slide } from 'svelte/transition';
+  import { listen } from '@tauri-apps/api/event';
+  
+  // Import svelte-toast
+  // import notifications, { ToastContainer } from 'svelte-toast'; // Old library
+  import { SvelteToast, toast } from '@zerodevx/svelte-toast'; // New library @zerodevx/svelte-toast
+  
+  // Import components
+  import LeftPanel from './components/LeftPanel.svelte';
+  import MiddlePanel from './components/MiddlePanel.svelte';
+  import MainPanel from './components/MainPanel.svelte';
+  import BottomBar from './components/BottomBar.svelte';
+  import TopBar from './components/TopBar.svelte';
+  
+  // Import theme functions
+  import { applyTheme, getSystemTheme } from './theme';
+  
+  // Import shared types
+  import type {
+    AppConfig,
+    PanelItem,
+    SessionItem,
+    CommandItem,
+    SavedTranscriptListItem,
+    SavedTranscriptContent,
+    ChatSessionListItem,
+    ChatSessionContent,
+    ChatMessage
+  } from './types'; // Import from types.ts
   
   // State
-  let audioDevices = [];
-  let whisperModels = [];
-  let languages = [];
-  let selectedDevice = '';
-  let selectedModel = '';
-  let selectedLanguage = 'auto';
+  // Persist and restore active panel state
+  let activePanel: string;
+  try {
+    const storedPanel = localStorage.getItem('activePanel');
+    activePanel = storedPanel || 'transcription';
+  } catch (e) {
+    console.error("Failed to read activePanel from localStorage:", e);
+    activePanel = 'transcription'; // Default value on error
+  }
+  // Save active panel to localStorage on change
+  $: {
+    try {
+      localStorage.setItem('activePanel', activePanel);
+    } catch (e) {
+      console.error("Failed to save activePanel to localStorage:", e);
+    }
+  }
+  
   let isRecording = false;
   let transcriptionText = '';
   let peakLevel = 0;
+  let chatMessages: any[] = [];
+  let wordCount = 0;
+  let accuracy = 95;
+  let cpuUsage = 0.0; // Initialize as number
+  let memoryUsage = 0.0; // Initialize as number
+  let isOnline = true; // Default to true, update from backend
+  let appVersion = '0.1.0';
+  let isProcessingChat = false;
   
-  // Voice command state
-  let voiceCommandsEnabled = false;
-  let voiceCommandPrefix = '';
-  let voiceCommandRequirePrefix = false;
-  let lastCommand = null;
-  let commandHistoryExpanded = false;
-  let commandHistory = [];
-  
-  // Setup intervals for polling
-  let peakLevelInterval = null;
-  let transcriptionInterval = null;
-  let commandCheckInterval = null;
-  
-  // Advanced transcription state
-  let translateToEnglish = false;
-  
-  // Voice command variables
-  let commandFeedback = null;
-  let commandFeedbackTimeout = null;
-  
-  // Fetch data on component mount
-  onMount(async () => {
-    try {
-      // Get devices and models from backend
-      audioDevices = await invoke.audio.get_audio_devices;
-      whisperModels = await invoke.transcribe.get_whisper_models;
-      
-      // Get language options
-      try {
-        languages = await invoke.transcribe.get_supported_languages;
-      } catch (error) {
-        console.error('Failed to load language options:', error);
-        // Fallback to basic languages
-        languages = [
-          ['auto', 'Auto-detect'],
-          ['en', 'English'],
-          ['es', 'Spanish'],
-          ['fr', 'French'],
-          ['de', 'German']
-        ];
-      }
-      
-      // Load saved settings if available
-      try {
-        const settings = await invoke.config.get_settings;
-        if (settings) {
-          selectedDevice = settings.device_name || (audioDevices.length > 0 ? audioDevices[0] : '');
-          selectedModel = settings.model_name || (whisperModels.length > 0 ? whisperModels[0] : '');
-          
-          // Load speech settings if available
-          if (settings.speech) {
-            selectedLanguage = settings.speech.language || 'auto';
-            translateToEnglish = settings.speech.translate_to_english || false;
-          }
-        } else {
-          if (audioDevices.length > 0) selectedDevice = audioDevices[0];
-          if (whisperModels.length > 0) selectedModel = whisperModels[0];
-        }
-      } catch (error) {
-        // If settings not available, use defaults
-        if (audioDevices.length > 0) selectedDevice = audioDevices[0];
-        if (whisperModels.length > 0) selectedModel = whisperModels[0];
-      }
-      
-      // Load voice command settings
-      try {
-        // Use the new config API
-        const voiceConfig = await invoke.voice_commands.get_voice_command_config;
-        if (voiceConfig) {
-          voiceCommandsEnabled = voiceConfig.enabled;
-          voiceCommandPrefix = voiceConfig.prefix || 'computer';
-          voiceCommandRequirePrefix = voiceConfig.require_prefix;
-        }
-      } catch (error) {
-        console.error('Failed to load voice command config:', error);
-        // Try fallback to old API
-        try {
-          const voiceSettings = await invoke.voice_commands.get_voice_command_settings;
-          if (voiceSettings) {
-            voiceCommandsEnabled = voiceSettings.enabled;
-            voiceCommandPrefix = voiceSettings.command_prefix || 'computer';
-            voiceCommandRequirePrefix = voiceSettings.require_prefix;
-          }
-        } catch (fallbackError) {
-          console.error('Failed to load voice command settings:', fallbackError);
-        }
-      }
-      
-      // Try to get command history
-      try {
-        commandHistory = await invoke.voice_commands.get_command_history;
-      } catch (error) {
-        console.error('Failed to load command history:', error);
-        commandHistory = [];
-      }
-      
-      // Setup interval to poll for peak level
-      peakLevelInterval = window.setInterval(async () => {
-        if (isRecording) {
-          try {
-            peakLevel = await invoke.audio.get_peak_level;
-          } catch (error) {
-            console.error('Failed to get peak level:', error);
-          }
-        }
-      }, 100);
-      
-      // Setup interval to poll for transcription
-      transcriptionInterval = window.setInterval(async () => {
-        if (isRecording) {
-          try {
-            const newText = await invoke.transcribe.get_transcription;
-            if (newText !== transcriptionText) {
-              transcriptionText = newText;
-            }
-          } catch (error) {
-            console.error('Failed to get transcription:', error);
-          }
-        }
-      }, 300);
-      
-      // Setup interval to check for voice commands with improved command handling
-      commandCheckInterval = window.setInterval(async () => {
-        if (isRecording && voiceCommandsEnabled) {
-          try {
-            const command = await invoke.voice_commands.get_last_command;
-            if (command && (!lastCommand || lastCommand.trigger_text !== command.trigger_text)) {
-              // Get the full command history
-              commandHistory = await invoke.voice_commands.get_command_history;
-              
-              // Execute command action with visual feedback
-              executeVoiceCommand(command);
-              
-              // Clear the command so we don't process it again
-              await invoke.voice_commands.clear_last_command;
-              
-              // Update lastCommand
-              lastCommand = command;
-            }
-          } catch (error) {
-            console.error('Failed to check for voice commands:', error);
-          }
-        }
-      }, 300);
-    } catch (error) {
-      console.error('Failed to load initial data:', error);
-    }
-  });
-  
-  // Clean up on component destroy
-  onDestroy(() => {
-    if (peakLevelInterval !== null) {
-      clearInterval(peakLevelInterval);
-    }
-    
-    if (transcriptionInterval !== null) {
-      clearInterval(transcriptionInterval);
-    }
-    
-    if (commandCheckInterval !== null) {
-      clearInterval(commandCheckInterval);
-    }
-    
-    // Stop recording if active
-    if (isRecording) {
-      stopRecording();
-    }
-    
-    // Stop voice commands if active
-    if (voiceCommandsEnabled) {
-      toggleVoiceCommands(false);
-    }
-  });
-  
-  // Execute a voice command with improved feedback
-  async function executeVoiceCommand(command) {
-    console.log('Executing voice command:', command);
-    
-    // Display the command feedback
-    showCommandFeedback(command);
-    
-    // Handle different command types
-    switch (command.command_type) {
-      case 'delete':
-        // Delete the last few words from the transcription
-        const words = transcriptionText.trim().split(/\s+/);
-        if (words.length > 0) {
-          // Remove the last 1-3 words based on command parameters
-          const wordsToRemove = command.parameters ? 
-            parseInt(command.parameters) : 
-            Math.min(3, Math.max(1, Math.floor(words.length * 0.1)));
-          
-          transcriptionText = words.slice(0, -wordsToRemove).join(' ');
-        }
-        break;
-        
-      case 'undo':
-        // Undo functionality could be implemented with a history stack
-        showCommandFeedback({ command_type: 'undo', message: 'Undo action' });
-        break;
-        
-      case 'redo':
-        showCommandFeedback({ command_type: 'redo', message: 'Redo action' });
-        break;
-        
-      case 'capitalize':
-        // Capitalize the last word
-        const lastSpaceIndex = transcriptionText.lastIndexOf(' ');
-        if (lastSpaceIndex >= 0) {
-          const lastWord = transcriptionText.substring(lastSpaceIndex + 1);
-          const capitalizedWord = lastWord.charAt(0).toUpperCase() + lastWord.slice(1);
-          transcriptionText = transcriptionText.substring(0, lastSpaceIndex + 1) + capitalizedWord;
-        }
-        break;
-        
-      case 'lowercase':
-        // Lowercase the last word
-        const lastSpaceIdx = transcriptionText.lastIndexOf(' ');
-        if (lastSpaceIdx >= 0) {
-          const lastWord = transcriptionText.substring(lastSpaceIdx + 1);
-          const lowercaseWord = lastWord.toLowerCase();
-          transcriptionText = transcriptionText.substring(0, lastSpaceIdx + 1) + lowercaseWord;
-        }
-        break;
-        
-      case 'newline':
-        transcriptionText += '\n';
-        break;
-        
-      case 'newparagraph':
-        transcriptionText += '\n\n';
-        break;
-        
-      case 'period':
-        // Add period and ensure proper spacing
-        transcriptionText = transcriptionText.trimRight() + '. ';
-        break;
-        
-      case 'comma':
-        // Add comma and ensure proper spacing
-        transcriptionText = transcriptionText.trimRight() + ', ';
-        break;
-        
-      case 'questionmark':
-        // Add question mark and ensure proper spacing
-        transcriptionText = transcriptionText.trimRight() + '? ';
-        break;
-        
-      case 'exclamationmark':
-        // Add exclamation mark and ensure proper spacing
-        transcriptionText = transcriptionText.trimRight() + '! ';
-        break;
-        
-      case 'pause':
-        await stopRecording();
-        break;
-        
-      case 'resume':
-        await startRecording();
-        break;
-        
-      case 'stop':
-        await stopRecording();
-        break;
-        
-      default:
-        showCommandFeedback({ 
-          command_type: 'unknown', 
-          message: `Unknown command: ${command.command_type}` 
-        });
-    }
+  // Middle panel state
+  let middlePanelItems: PanelItem[] = [];
+  // Persist and restore selected item state
+  let selectedItemId: string | null;
+  try {
+    const storedItem = localStorage.getItem('selectedItemId');
+    selectedItemId = storedItem ?? null; // Use nullish coalescing
+  } catch (e) {
+    console.error("Failed to read selectedItemId from localStorage:", e);
+    selectedItemId = null; // Default value on error
   }
-  
-  // Show improved command feedback with animation
-  function showCommandFeedback(command) {
-    // Create feedback message
-    let message = '';
-    switch(command.command_type) {
-      case 'delete': message = 'Deleted text'; break;
-      case 'undo': message = 'Undo action'; break;
-      case 'redo': message = 'Redo action'; break;
-      case 'capitalize': message = 'Capitalized text'; break;
-      case 'lowercase': message = 'Lowercased text'; break;
-      case 'newline': message = 'New line added'; break;
-      case 'newparagraph': message = 'New paragraph added'; break;
-      case 'period': message = 'Period added'; break;
-      case 'comma': message = 'Comma added'; break;
-      case 'questionmark': message = 'Question mark added'; break;
-      case 'exclamationmark': message = 'Exclamation mark added'; break;
-      case 'pause': message = 'Recording paused'; break;
-      case 'resume': message = 'Recording resumed'; break;
-      case 'stop': message = 'Recording stopped'; break;
-      default: message = command.message || `Command: ${command.command_type}`;
-    }
-    
-    // Set command feedback
-    commandFeedback = {
-      type: command.command_type,
-      message: message,
-      show: true
-    };
-    
-    // Clear any existing timeout
-    if (commandFeedbackTimeout) {
-      clearTimeout(commandFeedbackTimeout);
-    }
-    
-    // Set timeout to hide feedback after 3 seconds
-    commandFeedbackTimeout = setTimeout(() => {
-      commandFeedback = null;
-    }, 3000);
-  }
-  
-  // Toggle voice commands
-  async function toggleVoiceCommands(enabled) {
+  // Save or clear selectedItemId in localStorage on change
+  $: {
     try {
-      if (enabled) {
-        await invoke.voice_commands.start_processing;
+      if (selectedItemId !== null) {
+        localStorage.setItem('selectedItemId', selectedItemId);
       } else {
-        await invoke.voice_commands.stop_processing;
+        localStorage.removeItem('selectedItemId');
       }
-      
-      // Update config
-      await invoke.voice_commands.update_config({
-        config: {
-          enabled: enabled,
-          prefix: voiceCommandPrefix,
-          require_prefix: voiceCommandRequirePrefix
-        }
-      });
-      
-      voiceCommandsEnabled = enabled;
-    } catch (error) {
-      console.error('Failed to toggle voice commands:', error);
+    } catch (e) {
+      console.error("Failed to update selectedItemId in localStorage:", e);
     }
   }
   
-  // Start recording and transcription
-  async function startRecording() {
+  // Derive selected item object from ID and items list
+  $: selectedItem = middlePanelItems.find(item => item.id === selectedItemId) || null;
+  
+  // --- Fetch Middle Panel Items --- START
+  let previousActivePanel = activePanel; // Store the initial active panel
+
+  $: {
+    // If the activePanel has genuinely changed from its previous state,
+    // then it's appropriate to clear the selected item ID.
+    if (activePanel !== previousActivePanel) {
+      selectedItemId = null;
+      previousActivePanel = activePanel; // Update previousActivePanel for the next change
+    }
+
+    const panelToLoad = activePanel; // Use a new const for clarity in the async function
+    const loadMiddlePanelItems = async (currentPanel: string) => {
+      console.log(`Fetching items for middle panel: ${currentPanel}`);
+      middlePanelItems = []; // Clear items while loading
+      // selectedItemId = null; // This line was moved to the outer reactive block
+      try {
+        let command: string | null = null;
+        // Determine the correct backend command based on the active panel
+        switch (currentPanel) {
+          case 'transcription':
+            command = 'get_recent_transcription_list'; // Placeholder
+            break;
+          case 'saved-transcripts':
+            command = 'get_saved_transcript_list'; // Placeholder
+            break;
+          case 'chat':
+            command = 'get_chat_session_list'; // Placeholder
+            break;
+          case 'voice-commands':
+            command = 'get_voice_command_list'; // Placeholder
+            break;
+          // Add cases for other panels that have middle panel lists
+          default:
+            // Panels like 'settings', 'devices', 'help' might not have middle panel items
+            console.log(`No items to fetch for panel: ${currentPanel}`);
+            middlePanelItems = []; // Ensure it's empty for panels without lists
+            return; // Exit early
+        }
+
+        if (command) {
+            console.log(`Invoking command: ${command}`);
+            const items = await invoke<PanelItem[]>(command);
+            // Check if panel is still the same after await
+            if (activePanel === currentPanel) {
+                middlePanelItems = items;
+                console.log(`Loaded ${items.length} items for panel: ${currentPanel}`);
+            } else {
+               console.log(`Panel changed while fetching items for ${currentPanel}. Aborting update.`);
+            }
+        }
+      } catch (error) {
+          console.error(`Failed to load items for panel ${currentPanel}:`, error);
+          // notifications.error('Load Error', `Failed to load list for ${currentPanel}: ${error}`); // Old
+          toast.push(`Error loading list for ${currentPanel}: ${error}`); // New
+          // Ensure items remain empty on error, even if panel didn't change
+          if (activePanel === currentPanel) {
+              middlePanelItems = []; 
+          }
+      }
+    };
+    loadMiddlePanelItems(panelToLoad); // Trigger load when activePanel changes
+  }
+  // --- Fetch Middle Panel Items --- END
+  
+  // TopBar state
+  let aiModels: string[] = []; // Whisper models
+  let languages: [string, string][] = [];
+  let selectedWhisperModel: string;
+  let selectedLanguage: string;
+  let currentTheme: 'light' | 'dark' | 'system';
+
+  // AI Chat State
+  let isFetchingTranscript = false;
+  let requestyApiKey: string | null;
+  let selectedChatModel: string;
+
+  // Add back the missing state variable
+  let selectedTranscriptContent: string | null = null;
+
+  // State for transcript fetching
+  let currentlyFetchingTranscriptId: string | null = null; // Track the ID being fetched
+
+  // Load initial settings from localStorage or defaults
+  try {
+    selectedWhisperModel = localStorage.getItem('selectedWhisperModel') || 'small'; // Renamed key
+    selectedLanguage = localStorage.getItem('selectedLanguage') || 'auto';
+    currentTheme = (localStorage.getItem('theme') as 'light' | 'dark' | 'system') || 'system';
+    requestyApiKey = localStorage.getItem('requestyApiKey') || null; // Load API key
+    selectedChatModel = localStorage.getItem('selectedChatModel') || 'gemini-1.5-pro-latest'; // Load chat model
+  } catch (e) {
+    console.error("Failed to load settings from localStorage:", e);
+    selectedWhisperModel = 'small'; // Renamed
+    selectedLanguage = 'auto';
+    currentTheme = 'system';
+    requestyApiKey = null;
+    selectedChatModel = 'gemini-1.5-pro-latest';
+  }
+
+  // Apply initial theme
+  applyTheme(currentTheme);
+
+  // State for the messages of the currently selected chat session
+  let currentChatMessages: ChatMessage[] = [];
+  
+  // --- Fetch full transcript content --- START
+  async function loadTranscriptContent(id: string | null) {
+    // Prevent fetch if panel isn't right, no ID, or already fetching this specific ID
+    if (activePanel !== 'saved-transcripts' || !id || currentlyFetchingTranscriptId === id) {
+        // If no id is provided (or null), ensure content is cleared
+        if (!id && selectedTranscriptContent !== null) {
+             selectedTranscriptContent = null;
+        }
+        // If panel changed away from transcripts, ensure fetching state is reset
+        if (activePanel !== 'saved-transcripts' && isFetchingTranscript) {
+             isFetchingTranscript = false;
+             currentlyFetchingTranscriptId = null;
+        }
+        return; // Exit if no fetch needed
+    }
+
+    // Start fetching
+    isFetchingTranscript = true;
+    currentlyFetchingTranscriptId = id; // Mark this ID as being fetched
+    selectedTranscriptContent = null; // Clear previous content immediately
+    console.log(`Fetching transcript content for ${id}...`);
+
     try {
-      await invoke.audio.start_recording, { 
-        deviceName: selectedDevice 
-      };
-      
-      // Start transcription with current settings
-      await invoke.transcribe.start_transcription, {
-        options: {
-          model_size: selectedModel,
-          language: selectedLanguage,
-          translate_to_english: translateToEnglish
+        const fullItem = await invoke<SavedTranscriptContent>('get_saved_transcript', { id });
+        // Check if still relevant *after* await (panel and selected ID haven't changed)
+        if (activePanel === 'saved-transcripts' && selectedItemId === id) {
+            selectedTranscriptContent = fullItem.content;
+        } else {
+             console.log(`Fetch for ${id} aborted or became irrelevant (panel/selection changed during fetch).`);
+             // Ensure content is cleared if fetch became irrelevant while running
+             if (selectedTranscriptContent !== null) {
+                  selectedTranscriptContent = null;
+             }
         }
-      });
-      
-      // Update recording state
-      isRecording = true;
-      
-      // Start voice commands if enabled
-      if (voiceCommandsEnabled) {
-        try {
-          await invoke.voice_commands.start_processing;
-        } catch (error) {
-          console.error('Failed to start voice commands:', error);
-        }
-      }
     } catch (error) {
-      console.error('Failed to start recording:', error);
-      alert(`Error starting recording: ${error}`);
+        console.error(`Failed to load content for ${id}:`, error);
+        // notifications.error('Load Error', `Failed to load transcript content: ${error}`); // Old
+        toast.push(`Error loading transcript content for ${id}: ${error}`); // New
+        // Show error only if still relevant
+        if (activePanel === 'saved-transcripts' && selectedItemId === id) {
+            selectedTranscriptContent = "Error: Could not load content.";
+        }
+    } finally {
+        // Reset fetching state only if we finished fetching the ID we were tasked with
+        if (currentlyFetchingTranscriptId === id) {
+             isFetchingTranscript = false;
+             currentlyFetchingTranscriptId = null;
+        }
     }
   }
+
+  // Reactive trigger: Call loadTranscriptContent whenever activePanel or selectedItemId changes.
+  // Pass null if not on the correct panel to handle clearing.
+  $: loadTranscriptContent(activePanel === 'saved-transcripts' ? selectedItemId : null);
+  // --- Fetch full transcript content --- END
   
-  // Stop recording and transcription
-  async function stopRecording() {
-    try {
-      await invoke.audio.stop_recording;
-      await invoke.transcribe.stop_transcription;
-      
-      // Update recording state
-      isRecording = false;
-      
-      // Stop voice commands
-      if (voiceCommandsEnabled) {
-        try {
-          await invoke.voice_commands.stop_processing;
-        } catch (error) {
-          console.error('Failed to stop voice commands:', error);
+  // Fetch full chat session content when a chat item is selected
+  let currentChatFetchId: string | null = null; // Prevent race conditions
+  $: (async () => {
+    if (activePanel === 'chat' && selectedItemId && selectedItemId !== currentChatFetchId) {
+      const fetchId = selectedItemId;
+      currentChatFetchId = fetchId;
+      currentChatMessages = []; // Clear previous messages while loading
+      console.log(`Fetching chat session for ${fetchId}...`);
+      try {
+        const sessionContent = await invoke<ChatSessionContent>('get_chat_session', { id: fetchId });
+        // Check if the selection hasn't changed while fetching
+        if (selectedItemId === fetchId) { 
+          currentChatMessages = sessionContent.messages;
+        }
+    } catch (error) {
+        console.error(`Failed to load chat session for ${fetchId}:`, error);
+        // notifications.error('Load Error', `Failed to load chat session: ${error}`); // Old
+        toast.push(`Error loading chat session for ${fetchId}: ${error}`); // New
+        // Optionally show error to user
+        if (selectedItemId === fetchId) {
+          // Maybe display an error message in the chat?
+          currentChatMessages = [{
+            id: `system-error-${Date.now()}`,
+            sender: 'system', 
+            text: `Error: Could not load chat content. ${error}`,
+            timestamp: Date.now()
+          }];
+        }
+      } finally {
+        // Reset fetch guard if this was the latest fetch for this ID
+        if (currentChatFetchId === fetchId) {
+          currentChatFetchId = null;
         }
       }
-    } catch (error) {
-      console.error('Failed to stop recording:', error);
+    } else if (activePanel !== 'chat') {
+      // Clear messages if navigating away from chat
+      currentChatMessages = []; 
+      currentChatFetchId = null;
     }
+  })();
+  
+  // Handle panel navigation
+  function handleNavigate(event: CustomEvent<{ panel: string }>) {
+    activePanel = event.detail.panel;
+    selectedItemId = null;
   }
   
-  // Handle start/stop recording
-  const toggleRecording = async () => {
-    if (!isRecording) {
-      await startRecording();
+  // Handle item selection
+  function handleSelect(event: CustomEvent<{ id: string }>) {
+    selectedItemId = event.detail.id;
+    // Here you would load data based on the selected item - Now handled reactively by passing selectedItem
+  }
+  
+  // Handle microphone toggle
+  async function handleMicToggle() {
+    console.log(`Mic toggle requested. Currently recording: ${isRecording}`);
+    if (isRecording) {
+      // Request to stop recording
+      try {
+        await invoke('stop_transcription');
+        console.log('Stop transcription requested successfully.');
+        // isRecording state will be updated by the 'transcribe:stopped' event listener
+    } catch (error) {
+        console.error("Failed to invoke stop_transcription:", error);
+        // TODO: Show error feedback to user
+      }
     } else {
-      await stopRecording();
-    }
-  };
-  
-  // Clear transcription text
-  async function clearTranscription() {
-    try {
-      await invoke.transcribe.clear_transcription;
-      transcriptionText = '';
+      // Request to start recording
+      // Optional: Clear previous transcription first?
+      // transcriptionText = ''; 
+      try {
+        await invoke('start_transcription', { 
+            // Pass necessary options if the command expects them
+            // e.g., options: { language: selectedLanguage, model_size: selectedWhisperModel }
+            // Currently, the backend command doesn't seem to take options here,
+            // it likely uses the config. Let's assume no options needed for now.
+        });
+        console.log('Start transcription requested successfully.');
+        // isRecording state will be updated by the 'transcribe:started' event listener
     } catch (error) {
-      console.error('Failed to clear transcription:', error);
+        console.error("Failed to invoke start_transcription:", error);
+        // TODO: Show error feedback to user
+      }
     }
   }
   
-  // Toggle command history panel
-  function toggleCommandHistory() {
-    commandHistoryExpanded = !commandHistoryExpanded;
-    if (commandHistoryExpanded) {
-      refreshCommandHistory();
+  // Handle theme toggle
+  function handleThemeToggle() {
+    const themes: ('light' | 'dark' | 'system')[] = ['light', 'dark', 'system'];
+    const currentIndex = themes.indexOf(currentTheme);
+    currentTheme = themes[(currentIndex + 1) % themes.length];
+    applyTheme(currentTheme);
+  }
+  
+  // Handle navigation request from TopBar settings button
+  function handleNavigateSettings() {
+    activePanel = 'settings';
+    selectedItemId = null; // Clear selection when changing panel context
+  }
+  
+  // Handle request to save transcript from MainPanel
+  async function handleSaveTranscriptRequest(event: CustomEvent<{ title: string; content: string }>) {
+    const { title, content } = event.detail;
+    if (!title || !content) {
+      console.error("Save request missing title or content");
+      // notifications.error('Save Error', "Cannot save transcript without title or content."); // Old
+      toast.push("Save Error: Cannot save transcript without title or content."); // New
+      return;
+    }
+
+    try {
+      await invoke('save_transcript', { title, content });
+      console.log("Transcript saved successfully:", title);
+      // notifications.success('Saved', `Transcript "${title}" saved successfully!`); // Old
+      toast.push(`Saved: Transcript "${title}" saved successfully!`); // New
+      // Optionally, clear current transcriptionText or navigate away?
+      // Refresh the saved list if currently viewing it?
+      if (activePanel === 'saved-transcripts') {
+        // Trigger reload - simplest way is to briefly switch panel and back, or re-call invoke
+        // For now, manually trigger reactive update by re-assigning activePanel
+        const current = activePanel;
+        activePanel = ''; // Force temporary change
+        await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI cycle
+        activePanel = current; 
+      }
+    } catch (error) {
+      console.error("Failed to save transcript:", error);
+      // notifications.error('Save Error', `Failed to save transcript: ${error}`); // Old
+      toast.push(`Save Error: Failed to save transcript: ${error}`); // New
     }
   }
   
-  // Get language display name
-  function getLanguageDisplayName(code) {
-    const lang = languages.find(l => l[0] === code);
-    return lang ? lang[1] : code;
+  // Handle request to delete transcript from MainPanel
+  async function handleDeleteTranscriptRequest(event: CustomEvent<{ id: string }>) {
+    const { id } = event.detail;
+    console.log(`Requesting delete for ${id}`);
+
+    try {
+      await invoke('delete_saved_transcript', { id });
+      console.log("Transcript deleted successfully:", id);
+
+      // Clear selection
+      selectedItemId = null;
+      selectedTranscriptContent = null;
+
+      // Refresh the saved list
+      // For now, manually trigger reactive update by re-assigning activePanel
+      const current = activePanel;
+      if (current === 'saved-transcripts') { // Only refresh if viewing the list
+        activePanel = ''; // Force temporary change
+        await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI cycle
+        activePanel = current;
+      } 
+      // notifications.success("Transcript deleted."); // Old
+      toast.push("Transcript deleted."); // New
+    } catch (error) {
+      console.error(`Failed to delete transcript ${id}:`, error);
+      // notifications.error('Delete Error', `Failed to delete transcript: ${error}`); // Old
+      toast.push(`Delete Error: Failed to delete transcript ${id}: ${error}`); // New
+    }
   }
   
-  // Format timestamp for displaying in the command history
-  function formatTimestamp(timestamp) {
-    if (!timestamp) return 'Unknown';
+  // Handle request to delete chat session from MainPanel
+  async function handleDeleteChatSession(event: CustomEvent<{ id: string }>) {
+    const { id } = event.detail;
+    console.log(`Requesting delete for chat session ${id}`);
+
+    try {
+      await invoke('delete_chat_session', { id });
+      // notifications.success("Chat session deleted."); // Old
+      toast.push("Chat session deleted."); // New
+
+      // Clear selection if the deleted item was selected
+      if (selectedItemId === id) {
+        selectedItemId = null;
+        currentChatMessages = [];
+      }
+
+      // Refresh the chat list
+      const current = activePanel;
+      if (current === 'chat') { // Only refresh if viewing the list
+        activePanel = ''; 
+        await new Promise(resolve => setTimeout(resolve, 0)); 
+        activePanel = current;
+      } 
+    } catch (error) {
+      console.error(`Failed to delete chat session ${id}:`, error);
+      // notifications.error('Delete Error', `Failed to delete chat session: ${error}`); // Old
+      toast.push(`Delete Error: Failed to delete chat session ${id}: ${error}`); // New
+    }
+  }
+  
+  // Handle request to send chat message from MainPanel
+  async function handleSendChatMessage(event: CustomEvent<{ sessionId: string | null; message: string }>) {
+    const { sessionId, message } = event.detail;
+    const userMessage: ChatMessage = {
+      id: `temp-${Date.now()}`,
+      sender: 'user',
+      text: message,
+      timestamp: Date.now() // Use timestamp field with number type
+    };
+    currentChatMessages = [...currentChatMessages, userMessage];
+    isProcessingChat = true;
+    // const loadingToastId = notifications.loading('Waiting for AI...'); // Old
+    const loadingToastId = toast.push('Waiting for AI...'); // New, returns ID
+    try {
+      const [newSessionId, aiMessage] = await invoke<[string, ChatMessage]>('send_chat_message', { 
+        sessionId,
+        userMessage: message 
+      });
+      // Ensure aiMessage has a number timestamp if needed, otherwise backend needs alignment
+      currentChatMessages = [...currentChatMessages, aiMessage]; 
+      if (!sessionId && newSessionId) {
+        selectedItemId = newSessionId; // Select the new session
+        // Trigger list refresh
+        const current = activePanel;
+        if (current === 'chat') {
+          activePanel = ''; 
+          await new Promise(resolve => setTimeout(resolve, 0)); 
+          activePanel = current;
+        }
+      } else {
+         // Refresh messages for current session (might not be needed if AI message added above)
+         // Re-assigning triggers reactivity if needed
+         currentChatMessages = [...currentChatMessages]; 
+      }
+      // notifications.remove(loadingToastId); // Old
+      if (loadingToastId) toast.pop(loadingToastId); // New
+    } catch (error) {
+      // notifications.remove(loadingToastId); // Old
+      if (loadingToastId) toast.pop(loadingToastId); // New
+      console.error("Failed to send chat message:", error);
+      // notifications.error('Send Error', `Failed to get AI response: ${error}`); // Old
+      toast.push(`Send Error: Failed to get AI response: ${error}`); // New
+      const errorMessage: ChatMessage = {
+          id: `error-${Date.now()}`,
+          sender: 'system',
+          text: `Error sending message: ${error}`,
+          timestamp: Date.now() // Use timestamp field with number type
+      };
+      currentChatMessages = [...currentChatMessages, errorMessage];
+    } finally {
+      isProcessingChat = false;
+    }
+  }
+  
+  // Update stats from transcription
+  function updateStats(event: CustomEvent<{ wordCount?: number }>) {
+    if (event.detail.wordCount !== undefined) {
+      wordCount = event.detail.wordCount;
+    }
+  }
+  
+  // Setup system monitoring
+  let monitoringInterval: ReturnType<typeof setInterval>;
+  let eventListeners: (() => void)[] = []; // Explicitly type the array
+  
+  // Function to check backend status
+  async function checkBackendStatus() {
+    try {
+      // Fetch real system metrics from backend
+      const [cpu, mem, onlineStatus] = await Promise.all([
+        invoke<number>('system.get_cpu_usage'),
+        invoke<number>('system.get_memory_usage'),
+        invoke<boolean>('system.get_online_status')
+      ]);
+
+      // Round to 1 decimal place for cleaner display
+      cpuUsage = parseFloat(cpu.toFixed(1));
+      memoryUsage = parseFloat(mem.toFixed(1));
+      isOnline = onlineStatus;
+
+        } catch (error) {
+      console.error("Failed to fetch system metrics or online status:", error);
+      // Keep previous values or set defaults on error
+      cpuUsage = cpuUsage || 0;
+      memoryUsage = memoryUsage || 0;
+      isOnline = false; // Assume offline if status check fails
+    }
+  }
+  
+  onMount(async () => {
+    // Initial check for system status
+    checkBackendStatus();
+
+    // Fetch models and languages for selectors
+    try {
+      const [models, langs] = await Promise.all([
+        invoke<string[]>('get_whisper_models'),
+        invoke<[string, string][]>('get_supported_languages')
+      ]);
+      aiModels = models;
+      languages = [['auto', 'Auto-detect'], ...langs];
+      // Validation moved after loading full settings
+    } catch (error) {
+      console.error("Failed to load TopBar data in App:", error);
+      // notifications.error('Load Error', `Failed to load models/languages: ${error}`); // Old
+      toast.push(`Load Error: Failed to load models/languages: ${error}`); // New
+      // Provide minimal defaults if fetch fails but selections were loaded from localStorage
+      if (!aiModels.includes(selectedWhisperModel)) aiModels = [selectedWhisperModel];
+      if (!languages.some(l => l[0] === selectedLanguage)) languages = [[selectedLanguage, selectedLanguage]];
+    }
     
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }
-  
-  // Refresh command history
-  async function refreshCommandHistory() {
+    // Load full settings from backend (overwrites localStorage values if successful)
     try {
-      commandHistory = await invoke.voice_commands.get_command_history;
+      console.log("Fetching full application settings...");
+      const loadedConfig = await invoke<AppConfig>('get_settings');
+      console.log("Loaded config:", loadedConfig);
+
+      // Update state from loaded config
+      // Use nullish coalescing (??) to keep localStorage/initial defaults if backend value is null/undefined
+      selectedWhisperModel = loadedConfig.audio.speech.model_size ?? selectedWhisperModel;
+      selectedLanguage = loadedConfig.audio.speech.language ?? selectedLanguage;
+      requestyApiKey = loadedConfig.ai.requesty_api_key ?? requestyApiKey;
+      selectedChatModel = loadedConfig.ai.chat_model ?? selectedChatModel;
+
+      // Update detailed Whisper settings state
+      // whisperAutoPunctuate = loadedConfig.audio.speech.auto_punctuate ?? whisperAutoPunctuate;
+      // whisperTranslateToEnglish = loadedConfig.audio.speech.translate_to_english ?? whisperTranslateToEnglish;
+      // whisperContextFormatting = loadedConfig.audio.speech.context_formatting ?? whisperContextFormatting;
+      // whisperSegmentDuration = loadedConfig.audio.speech.segment_duration ?? whisperSegmentDuration;
+      // whisperBufferSize = loadedConfig.audio.speech.buffer_size ?? whisperBufferSize;
+
+      // Update other settings if needed (e.g., theme)
+      // currentTheme = loadedConfig.general.theme ?? currentTheme; // Example
+
+      // Ensure loaded selections are valid against fetched lists
+      if (!aiModels.includes(selectedWhisperModel) && aiModels.length > 0) {
+          console.warn(`Loaded model '${selectedWhisperModel}' not in available list, defaulting to ${aiModels[0]}`);
+          selectedWhisperModel = aiModels[0];
+      }
+      if (!languages.some(l => l[0] === selectedLanguage) && languages.length > 0) {
+          console.warn(`Loaded language '${selectedLanguage}' not in available list, defaulting to ${languages[0][0]}`);
+          selectedLanguage = languages[0][0];
+      }
+
     } catch (error) {
-      console.error('Failed to refresh command history:', error);
-      commandHistory = [];
+      console.error("Failed to load settings from backend:", error);
+      // notifications.error('Load Error', `Failed to load settings: ${error}. Using defaults/localStorage fallback.`); // Old
+      toast.push(`Load Error: Failed to load settings: ${error}. Using defaults/localStorage fallback.`); // New
+      // Fallback to localStorage loading is implicitly handled as state was already initialized from it
     }
-  }
-  
-  // Clear command history
-  async function clearCommandHistory() {
+    
+    // Setup event listeners for transcription
     try {
-      await invoke.voice_commands.clear_command_history;
-      commandHistory = [];
+      const updateListener = await listen<string>('transcription:update', (event) => {
+        console.log('Transcription update:', event.payload);
+        transcriptionText = event.payload; // Update the transcription text state
+      });
+
+      const clearListener = await listen('transcription:clear', () => {
+        console.log('Transcription clear event');
+        transcriptionText = ''; // Clear the text
+      });
+
+      const errorListener = await listen<{ error: string }>('transcribe:error', (event) => {
+        console.error('Transcription error:', event.payload.error);
+        // notifications.error('Transcription Error', `Transcription error: ${event.payload.error}`); // Old
+        toast.push(`Transcription Error: ${event.payload.error}`); // New
+      });
+
+      // Optional: Listen for started/stopped if needed to sync isRecording more reliably
+      const startedListener = await listen('transcribe:started', () => {
+          console.log('Transcription started event');
+          isRecording = true;
+      });
+      const stoppedListener = await listen('transcribe:stopped', () => {
+          console.log('Transcription stopped event');
+          isRecording = false;
+      });
+
+      eventListeners = [
+          updateListener,
+          clearListener,
+          errorListener,
+          startedListener, 
+          stoppedListener
+      ];
+
     } catch (error) {
-      console.error('Failed to clear command history:', error);
+        console.error("Failed to set up transcription event listeners:", error);
+        // notifications.error('Listener Setup Error', `Listener setup failed: ${error}`); // Old
+        toast.push(`Listener Setup Error: Failed to set up transcription event listeners: ${error}`); // New
     }
-  }
+
+    // Setup polling interval for system status
+    monitoringInterval = setInterval(checkBackendStatus, 5000);
+  });
+  
+  onDestroy(() => {
+    if (monitoringInterval) {
+      clearInterval(monitoringInterval);
+    }
+    // Cleanup event listeners
+    console.log('Cleaning up event listeners...');
+    eventListeners.forEach(unlisten => unlisten());
+  });
 </script>
 
-<main>
-  <h1>BestMe</h1>
+<div class="app-container">
+  <TopBar 
+    bind:selectedWhisperModel
+    bind:selectedLanguage
+    {aiModels}
+    {languages}
+    {isRecording}
+    on:toggleMic={handleMicToggle}
+    on:toggleTheme={handleThemeToggle}
+    on:navigateSettings={handleNavigateSettings}
+  />
   
-  <div class="controls">
-    <div class="select-container">
-      <label for="device-select">Audio Device</label>
-      <select id="device-select" bind:value={selectedDevice}>
-        {#each audioDevices as device}
-          <option value={device}>{device}</option>
-        {/each}
-      </select>
-    </div>
+  <div class="panels-container">
+    <LeftPanel 
+      activeItem={activePanel} 
+      on:navigate={handleNavigate} 
+    />
     
-    <div class="select-container">
-      <label for="model-select">Whisper Model</label>
-      <select id="model-select" bind:value={selectedModel}>
-        {#each whisperModels as model}
-          <option value={model}>{model}</option>
-        {/each}
-      </select>
-    </div>
+    {#key activePanel}
+      <div in:slide={{ duration: 300 }} out:slide={{ duration: 300 }}>
+        <MiddlePanel
+          activePanel={activePanel}
+          items={middlePanelItems}
+          selectedItemId={selectedItemId}
+          on:select={handleSelect}
+        />
+        </div>
+    {/key}
     
-    <button class="record-button" class:recording={isRecording} on:click={toggleRecording}>
-      {isRecording ? 'Stop' : 'Start'} Recording
-    </button>
+    {#key activePanel}
+      <div in:slide={{ duration: 300 }} out:slide={{ duration: 300 }}>
+        <MainPanel
+          activePanel={activePanel}
+          selectedItem={selectedItem}
+          selectedTranscriptContent={selectedTranscriptContent}
+          transcriptionText={transcriptionText}
+          currentChatMessages={currentChatMessages}
+          on:saveTranscriptRequest={handleSaveTranscriptRequest}
+          on:deleteTranscriptRequest={handleDeleteTranscriptRequest}
+          on:sendChatMessage={handleSendChatMessage}
+          on:deleteChatRequest={handleDeleteChatSession}
+          isProcessingChat={isProcessingChat}
+        />
+      </div>
+    {/key}
   </div>
   
-  <div class="level-meter">
-    <div class="level-indicator" style="width: {peakLevel * 100}%"></div>
-  </div>
+  <!-- Bottom Bar -->
+  <BottomBar 
+    {appVersion}
+    {isOnline}
+    {cpuUsage}
+    {memoryUsage}
+    {wordCount}
+    {accuracy}
+  />
   
-  <div class="transcription-controls">
-    <div class="language-selector">
-      <label for="language-select">Language:</label>
-      <select id="language-select" bind:value={selectedLanguage} disabled={isRecording}>
-        {#each languages as [code, name]}
-          <option value={code}>{name}</option>
-        {/each}
-      </select>
-    </div>
-    
-    <div class="translate-toggle">
-      <label class="toggle-switch-small">
-        <input 
-          type="checkbox" 
-          bind:checked={translateToEnglish} 
-          disabled={isRecording || selectedLanguage === 'en'}
-        >
-        <span class="toggle-slider-small"></span>
-      </label>
-      <span class="toggle-label">Translate to English</span>
-    </div>
-  </div>
-  
-  <div class="voice-commands">
-    <div class="voice-commands-header">
-      <h2>Voice Commands</h2>
-      <label class="toggle-switch">
-        <input type="checkbox" bind:checked={voiceCommandsEnabled} on:change={() => toggleVoiceCommands(voiceCommandsEnabled)}>
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-    
-    {#if voiceCommandsEnabled}
-      <div class="voice-command-settings">
-        <div class="setting-row">
-          <label for="command-prefix">Command Prefix (optional)</label>
-          <input id="command-prefix" type="text" bind:value={voiceCommandPrefix} placeholder="e.g., Hey" />
-        </div>
-        
-        <div class="setting-row">
-          <label for="require-prefix">Require Prefix</label>
-          <input id="require-prefix" type="checkbox" bind:checked={voiceCommandRequirePrefix} />
-        </div>
-      </div>
-      
-      <div class="voice-command-indicator">
-        <div class="indicator-badge">
-          Voice Commands Active
-        </div>
-        {#if lastCommand}
-          <div class="last-command">
-            Last command: <span class="command-type-{lastCommand.command_type}">{lastCommand.command_type}</span>
-          </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
-  
-  <div class="transcription-container">
-    <!-- Transcription area -->
-    <div class="transcription-area">
-      <div class="transcription-header">
-        <div class="language-indicator">
-          <span class="indicator-label">Language:</span>
-          <span class="indicator-value">{getLanguageDisplayName(selectedLanguage)}</span>
-          {#if translateToEnglish && selectedLanguage !== 'en'}
-            <span class="translation-indicator">(Translating to English)</span>
-          {/if}
-        </div>
-        <div class="actions">
-          <button class="action-button" on:click={() => transcriptionText = ''} disabled={isRecording}>
-            Clear
-          </button>
-          <button class="action-button" on:click={() => {
-            commandHistoryExpanded = !commandHistoryExpanded;
-            if (commandHistoryExpanded) {
-              refreshCommandHistory();
-            }
-          }}>
-            {commandHistoryExpanded ? 'Hide' : 'Show'} History
-          </button>
-        </div>
-      </div>
-      <textarea
-        bind:value={transcriptionText}
-        placeholder="Transcription will appear here..."
-        readonly={isRecording}
-      ></textarea>
-    </div>
-    
-    <!-- Command History Panel -->
-    {#if commandHistoryExpanded}
-      <div class="command-history-panel">
-        <div class="command-history-header">
-          <h3>Voice Command History</h3>
-          <div class="command-history-actions">
-            <button class="action-button" on:click={refreshCommandHistory}>
-              Refresh
-            </button>
-            <button class="action-button" on:click={clearCommandHistory}>
-              Clear History
-            </button>
-          </div>
-        </div>
-        <div class="command-history-list">
-          {#if commandHistory.length === 0}
-            <div class="command-history-empty">No commands detected yet</div>
-          {:else}
-            {#each commandHistory as command}
-              <div class="command-history-item">
-                <div class="command-type {command.command_type}">
-                  {command.command_type}
-                </div>
-                <div class="command-trigger">
-                  "{command.trigger_text}"
-                </div>
-                <div class="command-time">
-                  {formatTimestamp(command.timestamp)}
-                </div>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      </div>
-    {/if}
-  </div>
-  
-  {#if commandFeedback && commandFeedback.show}
-    <div class="command-feedback command-feedback-{commandFeedback.type}">
-      <div class="command-feedback-icon">
-        {#if commandFeedback.type === 'delete'}
-          🗑️
-        {:else if commandFeedback.type === 'undo'}
-          ↩️
-        {:else if commandFeedback.type === 'redo'}
-          ↪️
-        {:else if commandFeedback.type === 'capitalize' || commandFeedback.type === 'lowercase'}
-          🔤
-        {:else if commandFeedback.type === 'newline' || commandFeedback.type === 'newparagraph'}
-          ↵
-        {:else if ['period', 'comma', 'questionmark', 'exclamationmark'].includes(commandFeedback.type)}
-          ✏️
-        {:else if ['pause', 'resume', 'stop'].includes(commandFeedback.type)}
-          ⏯️
-        {:else}
-          🎤
-        {/if}
-      </div>
-      <div class="command-feedback-message">{commandFeedback.message}</div>
-    </div>
-  {/if}
-  
-  <footer>
-    <p>BestMe v0.1.0 - Modern Speech-to-Text Application</p>
-  </footer>
-</main>
+  <!-- Global Toast Container -->
+  <!-- <ToastContainer notifications={$notifications} /> --> <!-- Old library -->
+  <SvelteToast /> <!-- New library @zerodevx/svelte-toast -->
+</div>
 
 <style>
-  main {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 2rem;
-    text-align: center;
-  }
-  
-  h1 {
-    font-size: 2rem;
-    margin-bottom: 2rem;
-    color: #2c3e50;
-  }
-  
-  .controls {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 1.5rem;
-  }
-  
-  .select-container {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    width: 30%;
-  }
-  
-  label {
-    margin-bottom: 0.5rem;
-    font-size: 0.9rem;
-    color: #7f8c8d;
-  }
-  
-  select {
-    width: 100%;
-    padding: 0.5rem;
-    border-radius: 4px;
-    border: 1px solid #ddd;
-    background-color: white;
-  }
-  
-  .record-button {
-    padding: 0.5rem 1.5rem;
-    border-radius: 20px;
-    border: none;
-    background-color: #3498db;
-    color: white;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background-color 0.3s;
-  }
-  
-  .record-button:hover {
-    background-color: #2980b9;
-  }
-  
-  .record-button.recording {
-    background-color: #e74c3c;
-  }
-  
-  .record-button.recording:hover {
-    background-color: #c0392b;
-  }
-  
-  .level-meter {
-    height: 8px;
-    background-color: #ecf0f1;
-    border-radius: 4px;
-    margin-bottom: 2rem;
+  :global(body) {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+      Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    height: 100vh;
     overflow: hidden;
   }
   
-  .level-indicator {
-    height: 100%;
-    background-color: #3498db;
-    transition: width 0.1s ease-out;
+  :global(#app) {
+    height: 100vh;
   }
   
-  .transcription-controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-    background-color: #f8f9fa;
-    border-radius: 8px;
-    padding: 0.5rem 1rem;
+  :global(:root) {
+    /* Light mode variables */
+    --app-bg: #f9f9f9;
+    --content-bg: #fff;
+    --panel-bg: #f5f5f5;
+    --secondary-bg: #f9f9f9;
+    --controls-bg: #f5f5f5;
+    --status-bar-bg: #f0f0f0;
+    
+    --text-primary: #333;
+    --text-secondary: #666;
+    --text-tertiary: #999;
+    
+    --border-color: #e0e0e0;
+    
+    --button-bg: #f0f0f0;
+    --button-hover-bg: #e5e5e5;
+    --active-button-bg: #ff5252;
+    
+    --input-bg: #fff;
+    --dropdown-bg: #fff;
+    
+    --hover-bg: #eaeaea;
+    --active-bg: #e2e2e2;
+    --selected-bg: #e8e8e8;
+    
+    --primary-color: #2196f3;
+    --primary-color-hover: #1976d2;
+    
+    --waveform-color: #2196f3;
+    --inactive-bar: #e0e0e0;
+    --active-bar: #4caf50;
+    
+    --user-message-bg: #e3f2fd;
+    --user-message-color: #0d47a1;
+    --ai-message-bg: #f5f5f5;
+    --ai-message-color: #333;
+    --system-message-bg: #fff3e0;
+    --system-message-color: #e65100;
+    
+    --online-color: #4caf50;
+    --offline-color: #f44336;
+    --progress-bg: #e0e0e0;
+    --progress-color: #2196f3;
   }
   
-  .language-selector {
-    display: flex;
-    align-items: center;
+  /* Dark Theme applied via body.dark-theme */
+  :global(body.dark-theme :root) {
+    /* Dark mode variables */
+    --app-bg: #121212;
+    --content-bg: #1a1a1a;
+    --panel-bg: #252525;
+    --secondary-bg: #252525;
+    --controls-bg: #252525;
+    --status-bar-bg: #252525;
+    
+    --text-primary: #eee;
+    --text-secondary: #bbb;
+    --text-tertiary: #888;
+    
+    --border-color: #333;
+    
+    --button-bg: #333;
+    --button-hover-bg: #444;
+    --active-button-bg: #b71c1c;
+    
+    --input-bg: #333;
+    --dropdown-bg: #333;
+    
+    --hover-bg: #2a2a2a;
+    --active-bg: #333;
+    --selected-bg: #333;
+    
+    --primary-color: #1976d2;
+    --primary-color-hover: #1565c0;
+    
+    --waveform-color: #1976d2;
+    --inactive-bar: #444;
+    --active-bar: #43a047;
+    
+    --user-message-bg: #0d47a1;
+    --user-message-color: #fff;
+    --ai-message-bg: #333;
+    --ai-message-color: #eee;
+    --system-message-bg: #5d4037;
+    --system-message-color: #ffe0b2;
+    
+    --online-color: #43a047;
+    --offline-color: #e53935;
+    --progress-bg: #444;
+    --progress-color: #1976d2;
   }
   
-  .language-selector label {
-    margin-right: 0.5rem;
-    font-size: 0.9rem;
-    color: #7f8c8d;
-  }
-  
-  .language-selector select {
-    padding: 0.3rem 0.5rem;
-    border-radius: 4px;
-    border: 1px solid #ddd;
-    background-color: white;
-    font-size: 0.9rem;
-  }
-  
-  .translate-toggle {
-    display: flex;
-    align-items: center;
-  }
-  
-  .toggle-switch-small {
-    position: relative;
-    display: inline-block;
-    width: 40px;
-    height: 20px;
-    margin-right: 0.5rem;
-  }
-  
-  .toggle-switch-small input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-  
-  .toggle-slider-small {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: #ccc;
-    transition: .4s;
-    border-radius: 20px;
-  }
-  
-  .toggle-slider-small:before {
-    position: absolute;
-    content: "";
-    height: 14px;
-    width: 14px;
-    left: 3px;
-    bottom: 3px;
-    background-color: white;
-    transition: .4s;
-    border-radius: 50%;
-  }
-  
-  input:checked + .toggle-slider-small {
-    background-color: #2ecc71;
-  }
-  
-  input:focus + .toggle-slider-small {
-    box-shadow: 0 0 1px #2ecc71;
-  }
-  
-  input:checked + .toggle-slider-small:before {
-    transform: translateX(20px);
-  }
-  
-  .toggle-label {
-    font-size: 0.9rem;
-    color: #7f8c8d;
-  }
-  
-  .transcription-title {
+  .app-container {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    height: 100vh;
+    background-color: var(--app-bg);
+    color: var(--text-primary);
+    overflow: hidden;
   }
   
-  .transcription-info {
-    font-size: 0.8rem;
-    color: #7f8c8d;
-    margin-top: 0.2rem;
-  }
-  
-  .voice-commands {
-    margin-bottom: 2rem;
-    background-color: #f8f9fa;
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: left;
-  }
-  
-  .voice-commands-header {
+  .panels-container {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-  }
-  
-  .voice-commands-header h2 {
-    margin: 0;
-    font-size: 1.5rem;
-    color: #2c3e50;
-  }
-  
-  .toggle-switch {
-    position: relative;
-    display: inline-block;
-    width: 50px;
-    height: 24px;
-  }
-  
-  .toggle-switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-  
-  .toggle-slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: #ccc;
-    transition: .4s;
-    border-radius: 24px;
-  }
-  
-  .toggle-slider:before {
-    position: absolute;
-    content: "";
-    height: 16px;
-    width: 16px;
-    left: 4px;
-    bottom: 4px;
-    background-color: white;
-    transition: .4s;
-    border-radius: 50%;
-  }
-  
-  input:checked + .toggle-slider {
-    background-color: #2ecc71;
-  }
-  
-  input:focus + .toggle-slider {
-    box-shadow: 0 0 1px #2ecc71;
-  }
-  
-  input:checked + .toggle-slider:before {
-    transform: translateX(26px);
-  }
-  
-  .voice-command-settings {
-    margin-top: 1rem;
-    padding: 0.5rem 0;
-    border-top: 1px solid #ddd;
-    border-bottom: 1px solid #ddd;
-  }
-  
-  .setting-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin: 0.5rem 0;
-  }
-  
-  .setting-row input[type="text"] {
     flex: 1;
-    max-width: 200px;
-    padding: 0.5rem;
-    border-radius: 4px;
-    border: 1px solid #ddd;
-  }
-  
-  .command-history-header {
-    display: flex;
-    align-items: center;
-    cursor: pointer;
-    padding: 5px 0;
-    margin-top: 15px;
-  }
-  
-  .command-history-header h3 {
-    flex-grow: 1;
-    margin: 0;
-    font-size: 1rem;
-  }
-  
-  .clear-history-button {
-    background-color: transparent;
-    border: none;
-    color: #6c757d;
-    font-size: 0.8rem;
-    cursor: pointer;
-    margin-right: 10px;
-  }
-  
-  .clear-history-button:hover {
-    color: #dc3545;
-  }
-  
-  .expand-icon {
-    color: #6c757d;
-    font-size: 0.8rem;
-  }
-  
-  .command-history {
-    max-height: 200px;
-    overflow-y: auto;
-    background-color: #f8f9fa;
-    border-radius: 6px;
-    margin-top: 10px;
-    padding: 10px;
-    border: 1px solid #dee2e6;
-  }
-  
-  .command-item {
-    display: flex;
-    align-items: center;
-    padding: 5px 0;
-    border-bottom: 1px solid #eee;
-  }
-  
-  .command-type {
-    padding: 3px 6px;
-    border-radius: 4px;
-    margin-right: 8px;
-    font-size: 0.8rem;
-    font-weight: bold;
-    background-color: #e9ecef;
-  }
-  
-  .command-type-delete { background-color: #f8d7da; color: #721c24; }
-  .command-type-undo, .command-type-redo { background-color: #d1ecf1; color: #0c5460; }
-  .command-type-capitalize, .command-type-lowercase { background-color: #fff3cd; color: #856404; }
-  .command-type-newline, .command-type-newparagraph { background-color: #d4edda; color: #155724; }
-  .command-type-period, .command-type-comma, 
-  .command-type-questionmark, .command-type-exclamationmark { background-color: #e2e3e5; color: #383d41; }
-  .command-type-pause, .command-type-resume, .command-type-stop { background-color: #cce5ff; color: #004085; }
-  
-  .command-trigger {
-    flex-grow: 1;
-    font-style: italic;
-    color: #6c757d;
-    font-size: 0.9rem;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  
-  .command-time {
-    font-size: 0.75rem;
-    color: #adb5bd;
-    margin-left: 8px;
-  }
-  
-  .no-commands {
-    text-align: center;
-    color: #95a5a6;
-    font-style: italic;
-    font-size: 0.9rem;
-  }
-  
-  .transcription-area {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    padding: 15px;
-    background-color: white;
-    border-radius: 5px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-    margin-bottom: 10px;
-  }
-  
-  .transcription-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #eee;
-  }
-  
-  textarea {
-    flex-grow: 1;
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    resize: none;
-    font-size: 16px;
-    line-height: 1.5;
-    font-family: inherit;
-  }
-  
-  textarea:focus {
-    outline: none;
-    border-color: #3498db;
-  }
-  
-  textarea:read-only {
-    background-color: #f9f9f9;
-    cursor: default;
-  }
-  
-  .clear-button {
-    padding: 0.3rem 0.8rem;
-    border-radius: 4px;
-    border: none;
-    background-color: #e74c3c;
-    color: white;
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-  
-  .clear-button:hover {
-    background-color: #c0392b;
-  }
-  
-  .transcription-text {
-    min-height: 200px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.5;
-    color: #34495e;
-  }
-  
-  .placeholder {
-    color: #95a5a6;
-    font-style: italic;
-  }
-  
-  footer {
-    margin-top: 2rem;
-    font-size: 0.8rem;
-    color: #95a5a6;
-  }
-  
-  .command-feedback {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background-color: #343a40;
-    color: white;
-    padding: 10px 15px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    z-index: 1000;
-    animation: fadeInOut 3s ease-in-out;
-  }
-  
-  .command-feedback-icon {
-    font-size: 1.5rem;
-    margin-right: 12px;
-  }
-  
-  .command-feedback-message {
-    font-size: 0.9rem;
-  }
-  
-  @keyframes fadeInOut {
-    0% { opacity: 0; transform: translateY(-20px); }
-    10% { opacity: 1; transform: translateY(0); }
-    80% { opacity: 1; transform: translateY(0); }
-    100% { opacity: 0; transform: translateY(-20px); }
-  }
-  
-  /* Command History Panel */
-  .transcription-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    width: 100%;
-  }
-  
-  .command-history-panel {
-    background-color: #f5f5f5;
-    border-top: 1px solid #ddd;
-    padding: 10px;
-    height: 200px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-  }
-  
-  .command-history-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-  }
-  
-  .command-history-header h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-  }
-  
-  .command-history-actions {
-    display: flex;
-    gap: 8px;
-  }
-  
-  .command-history-list {
-    flex-grow: 1;
-    overflow-y: auto;
-  }
-  
-  .command-history-empty {
-    color: #888;
-    font-style: italic;
-    text-align: center;
-    padding: 20px;
-  }
-  
-  .command-history-item {
-    display: flex;
-    align-items: center;
-    padding: 8px;
-    border-bottom: 1px solid #eee;
-    font-size: 13px;
-  }
-  
-  .command-history-item:last-child {
-    border-bottom: none;
-  }
-  
-  .command-type {
-    background-color: #3498db;
-    color: white;
-    padding: 2px 6px;
-    border-radius: 4px;
-    margin-right: 10px;
-    font-size: 12px;
-    min-width: 80px;
-    text-align: center;
-  }
-  
-  .command-type.delete { background-color: #e74c3c; }
-  .command-type.pause { background-color: #f39c12; }
-  .command-type.resume { background-color: #2ecc71; }
-  .command-type.stop { background-color: #e74c3c; }
-  .command-type.newline { background-color: #9b59b6; }
-  .command-type.newparagraph { background-color: #9b59b6; }
-  
-  .command-trigger {
-    flex-grow: 1;
-    font-style: italic;
-    color: #555;
-  }
-  
-  .command-time {
-    color: #888;
-    font-size: 12px;
-  }
-  
-  .language-indicator {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-  
-  .indicator-label {
-    font-weight: 600;
-    font-size: 12px;
-  }
-  
-  .indicator-value {
-    font-weight: normal;
-    background-color: #f0f0f0;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 12px;
-  }
-  
-  .translation-indicator {
-    color: #3498db;
-    font-size: 12px;
-  }
-  
-  .actions {
-    display: flex;
-    gap: 8px;
-  }
-  
-  .action-button {
-    background-color: #f0f0f0;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: background-color 0.2s;
-  }
-  
-  .action-button:hover:not(:disabled) {
-    background-color: #e0e0e0;
-  }
-  
-  .action-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  
-  .voice-command-indicator {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 1rem;
-    padding: 0.5rem 1rem;
-    background-color: #f8f9fa;
-    border-radius: 8px;
-  }
-  
-  .indicator-badge {
-    font-size: 1rem;
-    font-weight: bold;
-    color: #2c3e50;
-  }
-  
-  .last-command {
-    font-size: 0.8rem;
-    color: #7f8c8d;
-    margin-top: 0.5rem;
+    height: calc(100vh - 48px - 32px);
   }
 </style> 
