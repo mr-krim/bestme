@@ -1,40 +1,83 @@
-# BestMe: Modern Speech-to-Text for Windows 11, macOS, and Linux
+# BestMe: Your Local AI-Powered Personal Assistant
 
 ## Vision
-BestMe is a sleek, minimalist application that provides real-time voice-to-text transcription with advanced editing capabilities. Originally inspired by Windows 11's native dictation tool but significantly enhanced with AI capabilities, BestMe aims to become the premier cross-platform voice-to-text solution for professionals and everyday users, utilizing Tauri for a consistent experience across all supported platforms.
+BestMe is an intelligent personal assistant that seamlessly integrates voice transcription with your digital workflow. More than just speech-to-text, BestMe understands context, executes commands, and enhances productivity by bridging the gap between your voice and your applications. Built with privacy-first principles, it operates locally by default while offering optional cloud AI enhancements for advanced features. BestMe transforms how you interact with your computer, making voice a first-class input method across all your applications.
 
 ## Core Principles
-1. **Speed & Accuracy**: Real-time transcription with minimal latency and high accuracy
-2. **Beautiful UX**: Seamless integration with modern UI guidelines through Tauri's native rendering
-3. **AI-Enhanced**: Smart correction and context-aware transcription
-4. **Voice Control**: Robust voice command system for hands-free editing
-5. **Cross-Platform**: Unified codebase using Tauri across Windows, macOS, and Linux
-6. **Maintainable Design**: Maximum code reuse through web technologies with native performance
+1. **Privacy First**: All core functionality runs locally, cloud features are optional and transparent
+2. **Context Aware**: Understands what you're working on and adapts behavior accordingly
+3. **Seamless Integration**: Injects text directly into any application, not just text fields
+4. **Intelligent Assistant**: Goes beyond transcription to understand intent and execute actions
+5. **Speed & Accuracy**: Real-time processing with minimal latency and high accuracy
+6. **Beautiful UX**: Clean, intuitive interface that stays out of your way
+7. **Cross-Platform**: Consistent experience across Windows, macOS, and Linux
+8. **Extensible**: Plugin architecture for custom workflows and integrations
 
 ## Key Features
-- **Real-time Transcription**: Convert speech to text instantly as you speak
-- **Minimalist UI**: Clean, floating interface built with Tauri and web technologies
-- **Multi-device Audio**: Support for various microphones and audio inputs using cpal with native bridges
-- **Text Editing Commands**: Voice commands for editing text ("delete last sentence", "capitalize that")
-- **Auto-punctuation**: Intelligent punctuation based on speech patterns
-- **Multi-language Support**: Transcription for multiple languages
-- **Cross-Platform Core**: Shared implementation across Windows, macOS and Linux using Tauri
 
-## Future Features
-- **AI-Powered Correction**: Integration with LLMs (like OpenAI) for grammar and context correction
-- **Voice Assistant**: Conversational AI to help with tasks beyond transcription
-- **Custom Commands**: User-defined voice commands for personalized workflows
-- **Document Integration**: Direct transcription into Office applications
-- **Meeting Intelligence**: Speaker identification and meeting summaries
+### Core Transcription
+- **Real-time Speech-to-Text**: Industry-leading accuracy with Whisper AI
+- **Multi-language Support**: 100+ languages with automatic detection
+- **Smart Punctuation**: Context-aware punctuation and formatting
+- **Voice Commands**: Natural language commands for editing and control
 
-## Differentiation
-Unlike the built-in Windows dictation tool and other transcription solutions, BestMe will offer:
-- More accurate transcription using advanced models like Whisper
-- Sophisticated editing capabilities through voice commands
-- AI-enhanced text correction and improvement
-- Better customization for individual users' speech patterns
-- Seamless operation in more applications and contexts
-- True cross-platform support with consistent core functionality
+### Intelligent Integration
+- **Direct Text Injection**: Type into any application, not just text fields
+- **Application Context**: Adapts behavior based on active application
+- **Smart Clipboard**: Enhanced clipboard with transcription history
+- **Global Hotkeys**: System-wide shortcuts for instant access
+
+### Personal Assistant Features
+- **Conversation Memory**: Remembers context across sessions
+- **Transcript Storage**: Local SQLite database with full-text search
+- **Smart Retrieval**: "What did I say about X yesterday?"
+- **Action Execution**: "Send this to John" triggers email with context
+
+### AI Enhancement (Local + Optional Cloud)
+- **Local AI**: Grammar correction, formatting, basic commands
+- **Cloud AI**: Advanced summarization, style transformation, semantic understanding
+- **Hybrid Mode**: Use cloud only when needed, with full transparency
+- **Custom Models**: Support for OpenRouter/Requesty for model selection
+
+### Privacy & Security
+- **Local First**: All core features work offline
+- **Encrypted Storage**: Sensitive data encrypted at rest
+- **Audit Trail**: Track all AI interactions and data movement
+- **Data Controls**: Fine-grained control over what gets processed where
+
+## What Makes BestMe Different
+
+### vs. Built-in Dictation Tools
+- **Application Integration**: Works with ANY application, not just text fields
+- **Persistent Memory**: Remembers your conversations and context
+- **Intelligent Commands**: Natural language understanding, not just keywords
+- **Offline AI**: Local processing for privacy and speed
+
+### vs. Cloud Transcription Services
+- **Privacy First**: Your voice never leaves your device unless you explicitly allow it
+- **No Subscription Required**: Core features work forever without fees
+- **Instant Response**: No network latency for basic operations
+- **Customizable**: Add your own commands and workflows
+
+### vs. Traditional Assistants (Siri, Alexa, Cortana)
+- **Desktop Focused**: Designed for productivity, not general queries
+- **Deep Integration**: Direct text injection into applications
+- **Context Aware**: Understands your current task and application
+- **Extensible**: Plugin system for custom integrations
+
+## Use Cases
+
+### For Professionals
+- **Lawyers**: Dictate briefs with legal formatting and terminology
+- **Doctors**: Medical transcription with HIPAA-compliant local storage
+- **Writers**: Natural dictation with smart editing and formatting
+- **Developers**: Code dictation with syntax awareness
+
+### For Everyone
+- **Email Composition**: "Reply to John's email about the meeting"
+- **Note Taking**: "Save this idea to my project notes"
+- **Accessibility**: Hands-free computer control for any application
+- **Language Learning**: Practice pronunciation with instant feedback
 
 # Product Requirements Document (PRD)
 ## BestMe – Cross-Platform Real-Time Transcription & Meeting Intelligence Tool
@@ -283,7 +326,67 @@ This document defines the requirements for a cross-platform real-time transcript
 
 ---
 
-## 7. Conclusion
+## 7. Personal Assistant Vision
 
-This PRD outlines a comprehensive set of functional and non‑functional requirements for building a high‑performance, secure, and feature-rich cross-platform real‑time transcription and meeting intelligence tool. The solution leverages advanced audio capture, state‑of‑the‑art AI transcription, speaker diarization, meeting summarization, and seamless collaboration features to meet modern user expectations for speed, accuracy, and usability while maintaining robust privacy, security, and cross-platform compatibility.
+### The Ultimate Goal
+Transform BestMe from a transcription tool into an intelligent personal assistant that understands context, executes actions, and learns from your patterns. Think of it as having a highly capable assistant who:
+- Listens to everything you say (with your permission)
+- Understands what you're working on
+- Can execute commands in any application
+- Remembers past conversations and context
+- Helps you be more productive without getting in the way
+
+### Key Capabilities
+
+#### 1. Universal Text Injection
+- Works with ANY application - terminals, browsers, IDEs, office apps
+- Smart injection based on context (paste for large text, type for small)
+- Maintains formatting and special characters
+- Handles code syntax, markdown, and rich text
+
+#### 2. Intelligent Context Understanding
+- Knows which application is active
+- Understands the type of content (code, email, document)
+- Adapts commands based on context
+- Learns your preferences over time
+
+#### 3. Conversation Memory & Retrieval
+- "What did I say about the API redesign last Tuesday?"
+- "Show me all my thoughts on the marketing campaign"
+- "Find when I mentioned the budget numbers"
+- Semantic search across all transcripts
+
+#### 4. Smart Command Execution
+- "Send this paragraph to Sarah" - finds Sarah's email, composes message
+- "Add this to my todo list" - integrates with your task manager
+- "Schedule a meeting about this" - creates calendar event with context
+- "Save this code snippet" - stores with proper syntax highlighting
+
+#### 5. AI-Powered Enhancement
+- Local AI for instant corrections and formatting
+- Optional cloud AI for advanced features:
+  - "Make this more professional"
+  - "Summarize the last hour"
+  - "Extract action items from this meeting"
+  - "Translate this to Spanish"
+
+### Privacy & Trust
+- All transcription happens locally - your voice never leaves your device
+- Cloud features are opt-in with clear indicators
+- Full audit trail of what data goes where
+- Encrypted storage for sensitive information
+- Easy data export and deletion
+
+### The Experience
+Imagine starting your day:
+1. "BestMe, start listening" - begins ambient transcription
+2. You dictate emails, and they appear perfectly formatted in Gmail
+3. During a meeting, it captures everything and identifies speakers
+4. "What were the action items?" - instantly lists them
+5. "Draft a follow-up email" - creates it with meeting context
+6. All searchable, all private, all under your control
+
+## 8. Conclusion
+
+BestMe represents the future of human-computer interaction - where voice becomes as powerful as keyboard and mouse. By combining state-of-the-art transcription, intelligent context understanding, and seamless application integration, BestMe transforms how you work. It's not just about converting speech to text; it's about having an intelligent assistant that amplifies your productivity while respecting your privacy. The journey from transcription tool to personal assistant starts with the solid foundation we've built and extends into a future where your computer truly understands and assists you.
 

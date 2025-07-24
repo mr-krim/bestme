@@ -2,6 +2,36 @@ pub mod capture;
 pub mod device;
 pub mod transcribe;
 pub mod voice_commands;
+pub mod vad;
+pub mod enhanced_transcribe;
+pub mod streaming_transcribe;
+pub mod vocabulary;
+pub mod multi_pass;
+
+#[cfg(any(feature = "ai-local", feature = "ai-cloud"))]
+pub mod ai_voice_commands;
+
+#[cfg(any(feature = "ai-local", feature = "ai-cloud"))]
+pub mod ai_enhancement;
+
+#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+pub mod gpu;
+
+#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+pub mod gpu_config;
+
+#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+pub mod gpu_benchmark;
+
+#[cfg(test)]
+pub mod tests;
+
+// Re-export commonly used types
+pub use capture::{CaptureManager, AudioEvent, AudioData};
+pub use device::list_audio_devices;
+pub use transcribe::{TranscriptionManager, TranscriptionEvent};
+pub use voice_commands::{VoiceCommandProcessor, VoiceCommand};
+pub use vad::{VoiceActivityDetector, VADResult};
 
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait};

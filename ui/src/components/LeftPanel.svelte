@@ -6,6 +6,7 @@
     { id: 'transcription', label: 'Transcription', icon: '🎤' },
     { id: 'chat', label: 'Chat', icon: '💬' },
     { id: 'voice-commands', label: 'Voice Commands', icon: '🗣️' },
+    { id: 'vocabulary', label: 'Vocabulary', icon: '📚' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'saved-transcripts', label: 'Saved Transcripts', icon: '📜' },
     { id: 'devices', label: 'Devices', icon: '🎧' },

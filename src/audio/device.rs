@@ -156,5 +156,15 @@ impl DeviceManager {
         info!("Windows audio device detection found {} devices", self.input_devices.len());
         Ok(())
     }
+}
+
+/// List all available audio input devices
+pub fn list_audio_devices() -> Result<Vec<(String, String)>> {
+    let manager = DeviceManager::new()?;
+    let devices: Vec<(String, String)> = manager
+        .input_devices
+        .into_iter()
+        .collect();
+    Ok(devices)
 } 
 

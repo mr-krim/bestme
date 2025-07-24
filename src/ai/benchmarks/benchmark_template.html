@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BestMe AI Model Benchmark Results</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .metric-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        .metric-title {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .chart-container {
+            margin-bottom: 40px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #666;
+        }
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        .model-section {
+            margin-bottom: 40px;
+        }
+        .model-header {
+            background-color: #007bff;
+            color: white;
+            padding: 15px;
+            border-radius: 6px 6px 0 0;
+            margin-bottom: 0;
+        }
+        canvas {
+            max-width: 100%;
+            height: 300px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>BestMe AI Model Benchmark Results</h1>
+        <div class="timestamp">Generated: {{TIMESTAMP}}</div>
+        
+        <div class="summary" id="summary"></div>
+        
+        <div class="chart-container">
+            <h2>Performance Comparison</h2>
+            <canvas id="performanceChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h2>Latency Distribution</h2>
+            <canvas id="latencyChart"></canvas>
+        </div>
+        
+        <div id="modelResults"></div>
+    </div>
+
+    <script>
+        const results = {{RESULTS_JSON}};
+        
+        // Calculate summary statistics
+        function calculateSummary() {
+            const totalTests = results.length;
+            const avgLatency = results.reduce((sum, r) => sum + r.avg_latency_ms, 0) / totalTests;
+            const avgThroughput = results.reduce((sum, r) => sum + r.throughput_tps, 0) / totalTests;
+            const models = [...new Set(results.map(r => r.model_id))].length;
+            
+            document.getElementById('summary').innerHTML = `
+                <div class="metric-card">
+                    <div class="metric-title">Total Tests</div>
+                    <div class="metric-value">${totalTests}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Models Tested</div>
+                    <div class="metric-value">${models}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Avg Latency</div>
+                    <div class="metric-value">${avgLatency.toFixed(2)}ms</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Avg Throughput</div>
+                    <div class="metric-value">${avgThroughput.toFixed(2)} tps</div>
+                </div>
+            `;
+        }
+        
+        // Create performance comparison chart
+        function createPerformanceChart() {
+            const models = {};
+            results.forEach(r => {
+                if (!models[r.model_id]) {
+                    models[r.model_id] = {
+                        latencies: [],
+                        throughputs: []
+                    };
+                }
+                models[r.model_id].latencies.push(r.avg_latency_ms);
+                models[r.model_id].throughputs.push(r.throughput_tps);
+            });
+            
+            const modelNames = Object.keys(models);
+            const avgLatencies = modelNames.map(m => 
+                models[m].latencies.reduce((a, b) => a + b, 0) / models[m].latencies.length
+            );
+            const avgThroughputs = modelNames.map(m => 
+                models[m].throughputs.reduce((a, b) => a + b, 0) / models[m].throughputs.length
+            );
+            
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: modelNames,
+                    datasets: [{
+                        label: 'Avg Latency (ms)',
+                        data: avgLatencies,
+                        backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                        yAxisID: 'y-latency'
+                    }, {
+                        label: 'Avg Throughput (tps)',
+                        data: avgThroughputs,
+                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                        yAxisID: 'y-throughput'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        'y-latency': {
+                            type: 'linear',
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Latency (ms)'
+                            }
+                        },
+                        'y-throughput': {
+                            type: 'linear',
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Throughput (tps)'
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Create latency distribution chart
+        function createLatencyChart() {
+            const testNames = [...new Set(results.map(r => r.test_name))];
+            const datasets = [];
+            const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'];
+            
+            const models = [...new Set(results.map(r => r.model_id))];
+            models.forEach((model, idx) => {
+                const modelResults = results.filter(r => r.model_id === model);
+                const data = testNames.map(test => {
+                    const testResult = modelResults.find(r => r.test_name === test);
+                    return testResult ? testResult.p95_latency_ms : 0;
+                });
+                
+                datasets.push({
+                    label: model,
+                    data: data,
+                    backgroundColor: colors[idx % colors.length] + '88',
+                    borderColor: colors[idx % colors.length],
+                    borderWidth: 2
+                });
+            });
+            
+            const ctx = document.getElementById('latencyChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: testNames,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'P95 Latency (ms)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Create detailed tables
+        function createDetailedTables() {
+            const models = {};
+            results.forEach(r => {
+                if (!models[r.model_id]) {
+                    models[r.model_id] = [];
+                }
+                models[r.model_id].push(r);
+            });
+            
+            let html = '';
+            for (const [modelId, modelResults] of Object.entries(models)) {
+                html += `
+                    <div class="model-section">
+                        <h2 class="model-header">${modelId}</h2>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Test</th>
+                                    <th>Avg Latency</th>
+                                    <th>Min</th>
+                                    <th>P50</th>
+                                    <th>P90</th>
+                                    <th>P95</th>
+                                    <th>P99</th>
+                                    <th>Max</th>
+                                    <th>Throughput</th>
+                                    <th>Memory</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                modelResults.forEach(r => {
+                    html += `
+                        <tr>
+                            <td>${r.test_name}</td>
+                            <td>${r.avg_latency_ms.toFixed(2)}ms</td>
+                            <td>${r.min_latency_ms}ms</td>
+                            <td>${r.p50_latency_ms}ms</td>
+                            <td>${r.p90_latency_ms}ms</td>
+                            <td>${r.p95_latency_ms}ms</td>
+                            <td>${r.p99_latency_ms}ms</td>
+                            <td>${r.max_latency_ms}ms</td>
+                            <td>${r.throughput_tps.toFixed(2)} tps</td>
+                            <td>${r.memory_usage_mb} MB</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            document.getElementById('modelResults').innerHTML = html;
+        }
+        
+        // Initialize
+        calculateSummary();
+        createPerformanceChart();
+        createLatencyChart();
+        createDetailedTables();
+    </script>
+</body>
+</html>

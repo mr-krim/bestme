@@ -1,11 +1,15 @@
 // GUI module for the application
+#[cfg(target_os = "windows")]
 mod tray;
+#[cfg(target_os = "windows")]
 mod window;
+#[cfg(target_os = "windows")]
 mod settings;
+#[cfg(target_os = "windows")]
 mod icons;
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 use parking_lot::Mutex;
 use std::sync::Arc;
 

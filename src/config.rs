@@ -66,7 +66,7 @@ pub struct AudioSettings {
 }
 
 /// AI Provider settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AiSettings {
     /// API Key for Requesty Provider (if used)
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,20 +78,115 @@ pub struct AiSettings {
 }
 
 /// Whisper transcription parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WhisperParamsSettings {
     /// Number of candidates to consider for each segment (greedy decoding)
     #[serde(default = "default_best_of")]
     pub best_of: i32,
-    // Add other whisper parameters here as needed (e.g., temperature, beam_size)
+    
+    /// Temperature for sampling (0.0 = greedy, 1.0 = more random)
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    
+    /// Initial prompt to condition the model
+    #[serde(default)]
+    pub initial_prompt: Option<String>,
+    
+    /// Compression ratio threshold (2.4 is default)
+    #[serde(default = "default_compression_ratio_threshold")]
+    pub compression_ratio_threshold: f32,
+    
+    /// Log probability threshold (-1.0 is default)
+    #[serde(default = "default_logprob_threshold")]
+    pub logprob_threshold: f32,
+    
+    /// No speech threshold (0.6 is default)
+    #[serde(default = "default_no_speech_threshold")]
+    pub no_speech_threshold: f32,
+    
+    /// Whether to condition on previous text
+    #[serde(default = "default_true")]
+    pub condition_on_previous_text: bool,
+    
+    /// Beam size for beam search (0 = greedy)
+    #[serde(default = "default_beam_size")]
+    pub beam_size: u32,
+    
+    /// Patience factor for early stopping
+    #[serde(default = "default_patience")]
+    pub patience: f32,
+    
+    /// Enable Voice Activity Detection
+    #[serde(default = "default_false")]
+    pub vad_enabled: bool,
+    
+    /// VAD threshold (0.0 - 1.0)
+    #[serde(default = "default_vad_threshold")]
+    pub vad_threshold: f32,
+    
+    /// Minimum speech duration in milliseconds
+    #[serde(default = "default_min_speech_duration")]
+    pub min_speech_duration_ms: u32,
+    
+    /// Maximum silence duration in milliseconds
+    #[serde(default = "default_max_silence_duration")]
+    pub max_silence_duration_ms: u32,
 }
 
 fn default_best_of() -> i32 {
     1 // Default best_of for greedy strategy
 }
 
+fn default_temperature() -> f32 {
+    0.0 // Greedy decoding by default
+}
+
+fn default_compression_ratio_threshold() -> f32 {
+    2.4
+}
+
+fn default_logprob_threshold() -> f32 {
+    -1.0
+}
+
+fn default_no_speech_threshold() -> f32 {
+    0.6
+}
+
+fn default_beam_size() -> u32 {
+    0 // Greedy by default
+}
+
+fn default_patience() -> f32 {
+    1.0
+}
+
+fn default_vad_threshold() -> f32 {
+    0.5
+}
+
+fn default_min_speech_duration() -> u32 {
+    250 // 250ms
+}
+
+fn default_max_silence_duration() -> u32 {
+    2000 // 2 seconds
+}
+
+fn default_false() -> bool {
+    false
+}
+
+fn default_chat_model() -> String {
+    "gemini-1.5-pro-latest".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Speech recognition settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SpeechSettings {
     /// Whisper model size
     pub model_size: WhisperModelSize,
@@ -205,7 +300,21 @@ impl Default for Config {
                 voice_commands: VoiceCommandConfig::default(),
             },
             ai: AiSettings::default(),
-            whisper_params: WhisperParamsSettings::default(),
+            whisper_params: WhisperParamsSettings {
+                best_of: default_best_of(),
+                temperature: default_temperature(),
+                initial_prompt: None,
+                compression_ratio_threshold: default_compression_ratio_threshold(),
+                logprob_threshold: default_logprob_threshold(),
+                no_speech_threshold: default_no_speech_threshold(),
+                condition_on_previous_text: true,
+                beam_size: default_beam_size(),
+                patience: default_patience(),
+                vad_enabled: false,
+                vad_threshold: default_vad_threshold(),
+                min_speech_duration_ms: default_min_speech_duration(),
+                max_silence_duration_ms: default_max_silence_duration(),
+            },
         }
     }
 }
@@ -565,6 +674,26 @@ impl ConfigManager {
     pub fn offline_mode(&self) -> bool {
         // This is a new feature, so we'll just return a default for now
         true
+    }
+    
+    /// Create a ConfigManager from a Config and paths (for testing)
+    #[cfg(test)]
+    pub fn from_config_and_path(config: Config, config_dir: PathBuf, config_file: PathBuf) -> Self {
+        Self {
+            config_dir,
+            config_file,
+            config,
+        }
+    }
+}
+
+/// Get the application data directory
+pub fn get_app_data_dir() -> PathBuf {
+    if let Some(project_dirs) = ProjectDirs::from("com", "bestme", "BestMe") {
+        project_dirs.data_local_dir().to_path_buf()
+    } else {
+        // Fallback to a temporary directory if project dirs can't be determined
+        std::env::temp_dir().join("bestme")
     }
 }
 

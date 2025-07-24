@@ -16,7 +16,14 @@ use serde_json::json;
 use std::marker::PhantomData;
 
 use bestme::audio::capture::AudioData;
-use bestme::config::{ConfigManager, WhisperModelSize, SpeechSettings};
+use bestme::audio::voice_commands::{VoiceCommandManager as VoiceCommandProcessor, VoiceCommandEvent};
+use bestme::audio::vad::{VoiceActivityDetector, VADResult};
+use bestme::audio::enhanced_transcribe::{EnhancedWhisperProcessor, TranscriptSegment, HallucinationDetector};
+use bestme::audio::streaming_transcribe::{
+    StreamingTranscriptionManager, StreamingConfig, StreamingEvent
+};
+use bestme::audio::vocabulary::{VocabularyManager, VocabularyEntry};
+use bestme::config::{ConfigManager, WhisperModelSize, SpeechSettings, WhisperParamsSettings};
 
 // Constants for audio processing
 const WHISPER_SAMPLE_RATE: usize = 16000;
@@ -88,6 +95,11 @@ pub struct TranscribeState {
     app_handle: Option<AppHandle>,
     download_progress: Arc<Mutex<Option<(String, f32)>>>, // (model_size, progress 0.0-1.0)
     get_model_path: Box<dyn Fn(&str) -> PathBuf + Send + Sync>,
+    voice_command_processor: Arc<Mutex<Option<VoiceCommandProcessor>>>,
+    enhanced_processor: Arc<Mutex<Option<EnhancedWhisperProcessor>>>,
+    vad: Arc<Mutex<Option<VoiceActivityDetector>>>,
+    hallucination_detector: Arc<HallucinationDetector>,
+    vocabulary_manager: Arc<Mutex<Option<VocabularyManager>>>,
 }
 
 impl TranscribeState {
@@ -129,6 +141,25 @@ impl TranscribeState {
             models_dir.join(format!("ggml-{}.bin", model_size))
         });
         
+        // Initialize voice command processor if enabled
+        let voice_command_processor = {
+            let config = config_manager.lock();
+            if config.get_config().audio.voice_commands.enabled {
+                match VoiceCommandProcessor::new(config.get_config().audio.voice_commands.clone()) {
+                    Ok((processor, _)) => {
+                        info!("Voice commands enabled in Tauri plugin");
+                        Some(processor)
+                    },
+                    Err(e) => {
+                        warn!("Failed to create voice command processor: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        };
+        
         Ok(Self {
             config_manager,
             transcription_text: Arc::new(Mutex::new(String::new())),
@@ -140,12 +171,42 @@ impl TranscribeState {
             app_handle,
             download_progress: Arc::new(Mutex::new(None)),
             get_model_path,
+            voice_command_processor: Arc::new(Mutex::new(voice_command_processor)),
+            enhanced_processor: Arc::new(Mutex::new(None)),
+            vad: Arc::new(Mutex::new(None)),
+            hallucination_detector: Arc::new(HallucinationDetector::new()),
+            vocabulary_manager: Arc::new(Mutex::new(None)),
         })
     }
     
     pub fn set_app_handle(&mut self, app_handle: AppHandle) -> Result<()> {
         self.app_handle = Some(app_handle);
         Ok(())
+    }
+    
+    /// Initialize vocabulary manager
+    pub fn initialize_vocabulary_manager(&self) -> Result<()> {
+        if let Some(app_handle) = &self.app_handle {
+            let app_data_dir = app_handle.path_resolver()
+                .app_data_dir()
+                .ok_or_else(|| anyhow!("Could not determine app data directory"))?;
+            
+            let vocab_path = app_data_dir.join("vocabulary.json");
+            
+            match VocabularyManager::new(vocab_path) {
+                Ok(manager) => {
+                    *self.vocabulary_manager.lock() = Some(manager);
+                    info!("Vocabulary manager initialized");
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("Failed to initialize vocabulary manager: {}", e);
+                    Err(e)
+                }
+            }
+        } else {
+            Err(anyhow!("App handle not set"))
+        }
     }
 
     pub fn create_audio_channel(&self) -> mpsc::Sender<AudioData> {
@@ -314,32 +375,109 @@ impl TranscribeState {
         Ok(())
     }
     
-    // Process audio buffer using Whisper
+    // Process audio buffer using Whisper with enhanced features
     async fn process_audio_buffer(&self, audio_buffer: Vec<f32>) -> Result<String> {
+        let config = self.config_manager.lock().get_config().clone();
+        let speech_config = config.audio.speech.clone();
+        let whisper_params = config.whisper_params.clone();
+        
+        // Apply VAD if enabled
+        if whisper_params.vad_enabled {
+            let mut vad_lock = self.vad.lock();
+            if vad_lock.is_none() {
+                *vad_lock = Some(VoiceActivityDetector::new(
+                    whisper_params.vad_threshold,
+                    whisper_params.min_speech_duration_ms,
+                    whisper_params.max_silence_duration_ms,
+                    WHISPER_SAMPLE_RATE,
+                ));
+            }
+            
+            if let Some(vad) = vad_lock.as_mut() {
+                match vad.process(&audio_buffer) {
+                    VADResult::Silence => {
+                        debug!("VAD: Silence detected, skipping processing");
+                        return Ok(String::new());
+                    }
+                    VADResult::SpeechEnd => {
+                        debug!("VAD: Speech ended, processing buffer");
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        // Check if we have enhanced processor
+        let mut enhanced_lock = self.enhanced_processor.lock();
+        if enhanced_lock.is_none() && self.whisper_context.lock().is_some() {
+            // Create enhanced processor
+            let context = self.whisper_context.lock().clone().unwrap();
+            *enhanced_lock = Some(EnhancedWhisperProcessor::new(
+                context,
+                speech_config.clone(),
+                whisper_params.clone(),
+            ));
+        }
+        
+        // Use enhanced processor if available
+        if let Some(processor) = enhanced_lock.as_mut() {
+            match processor.process_enhanced(&audio_buffer).await? {
+                Some(segment) => {
+                    // Check for hallucinations
+                    if self.hallucination_detector.is_hallucination(&segment.text, segment.confidence) {
+                        warn!("Detected potential hallucination: '{}' (confidence: {:.2})", 
+                              segment.text, segment.confidence);
+                        return Ok(String::new());
+                    }
+                    
+                    debug!("Enhanced transcription: '{}' (confidence: {:.2}, start: {:.2}s, end: {:.2}s)",
+                           segment.text, segment.confidence, segment.start_time, segment.end_time);
+                    
+                    // Send detailed event if app handle available
+                    if let Some(app) = &self.app_handle {
+                        let _ = app.emit_all("transcription-segment", json!({
+                            "text": segment.text.clone(),
+                            "confidence": segment.confidence,
+                            "start_time": segment.start_time,
+                            "end_time": segment.end_time,
+                            "no_speech_prob": segment.no_speech_prob,
+                        }));
+                    }
+                    
+                    Ok(segment.text)
+                }
+                None => Ok(String::new())
+            }
+        } else {
+            // Fallback to basic processing
+            self.process_audio_buffer_basic(audio_buffer).await
+        }
+    }
+    
+    // Basic audio buffer processing (fallback)
+    async fn process_audio_buffer_basic(&self, audio_buffer: Vec<f32>) -> Result<String> {
         let context_lock = self.whisper_context.lock();
         let context = context_lock.as_ref().ok_or_else(|| anyhow!("Whisper context not loaded"))?;
         
         // Get relevant settings from config
         let speech_config = self.config_manager.lock().get_config().audio.speech.clone();
         
-        debug!("Processing audio buffer. Language: {}, Translate: {}", 
+        debug!("Processing audio buffer (basic mode). Language: {}, Translate: {}", 
                speech_config.language.clone().unwrap_or_else(|| "auto".to_string()), 
                speech_config.translate_to_english);
 
         // Create parameters for transcription using the helper function
         let mut params = self.create_whisper_params(&speech_config);
         
-        // Configure other parameters as needed (potentially from config later)
-        // NOTE: The best_of parameter is now set within create_whisper_params
+        // Configure other parameters as needed
         params.set_print_special_tokens(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
-        // params.set_n_threads(4); // Example: adjust thread count
         
         // Run transcription in a blocking task
-        let params_clone = params.clone(); // Clone params for the blocking task
-        let audio_buffer_clone = audio_buffer.clone(); // Clone buffer
+        let params_clone = params.clone();
+        let audio_buffer_clone = audio_buffer.clone();
         let result = tokio::task::spawn_blocking(move || {
             let mut state = context.create_state()?;
             state.full(params_clone, &audio_buffer_clone)?;
@@ -354,7 +492,7 @@ impl TranscribeState {
                 }
             }
             Ok::<String, anyhow::Error>(result_text)
-        }).await??; // Double ?? to handle JoinError and inner Result
+        }).await??;
 
         debug!("Transcription segment result: {}", result);
         Ok(result)
@@ -485,12 +623,54 @@ impl TranscribeState {
                                         }
                                     }
                                     
-                                    // Emit transcription event to frontend
-                                    if let Some(handle) = &app_handle {
-                                        let _ = handle.emit_all(
-                                            "transcription:update",
-                                            json!(&text)
-                                        );
+                                    // Check for voice commands
+                                    let voice_command_detected = {
+                                        let processor_guard = self_clone.voice_command_processor.lock();
+                                        if let Some(ref mut processor) = processor_guard.as_ref() {
+                                            let mut processor = processor.lock();
+                                            if let Some(event) = processor.process_text(&text) {
+                                                match event {
+                                                    VoiceCommandEvent::CommandDetected(command) => {
+                                                        info!("Voice command detected in Tauri: {:?}", command);
+                                                        
+                                                        // Execute the command
+                                                        let result = processor.execute_command(&command);
+                                                        
+                                                        // Emit command event to frontend
+                                                        if let Some(handle) = &app_handle {
+                                                            let _ = handle.emit_all(
+                                                                "voice-command:executed",
+                                                                json!({
+                                                                    "command": format!("{:?}", command.command_type),
+                                                                    "success": result.is_ok(),
+                                                                    "result": result.as_ref().ok().cloned().unwrap_or_default(),
+                                                                    "error": result.as_ref().err().cloned().unwrap_or_default()
+                                                                })
+                                                            );
+                                                        }
+                                                        true
+                                                    },
+                                                    VoiceCommandEvent::Error(err) => {
+                                                        warn!("Voice command error: {}", err);
+                                                        false
+                                                    }
+                                                }
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        }
+                                    };
+                                    
+                                    // Only emit transcription event if no command was detected
+                                    if !voice_command_detected {
+                                        if let Some(handle) = &app_handle {
+                                            let _ = handle.emit_all(
+                                                "transcription:update",
+                                                json!(&text)
+                                            );
+                                        }
                                     }
                                 }
                             },
@@ -560,9 +740,17 @@ impl TranscribeState {
         // Access whisper_params correctly from config_manager
         let whisper_params_config = self.config_manager.lock().get_config().whisper_params.clone();
         
-        let best_of = whisper_params_config.best_of;
-
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of });
+        // Create strategy based on beam size
+        let mut params = if whisper_params_config.beam_size > 0 {
+            FullParams::new(SamplingStrategy::BeamSearch {
+                beam_size: whisper_params_config.beam_size as i32,
+                patience: whisper_params_config.patience,
+            })
+        } else {
+            FullParams::new(SamplingStrategy::Greedy { 
+                best_of: whisper_params_config.best_of 
+            })
+        };
 
         // Set language if specified and not "auto"
         if let Some(lang) = &speech_settings.language {
@@ -570,20 +758,39 @@ impl TranscribeState {
                 params.set_language(Some(lang));
                 debug!("Setting language parameter to: {}", lang);
             } else {
-                 debug!("Using auto-detect for language (language set to '{}').", lang);
-                 params.set_language(None); // Explicitly set to None for auto-detect/empty
+                debug!("Using auto-detect for language (language set to '{}').", lang);
+                params.set_language(None); // Explicitly set to None for auto-detect/empty
             }
         } else {
-             debug!("Using auto-detect for language (language is None).");
-             params.set_language(None); // Explicitly set to None for auto-detect
+            debug!("Using auto-detect for language (language is None).");
+            params.set_language(None); // Explicitly set to None for auto-detect
         }
-
 
         // Set translate flag
         params.set_translate(speech_settings.translate_to_english);
         if speech_settings.translate_to_english {
             debug!("Setting translate parameter to true.");
         }
+        
+        // Set advanced parameters
+        params.set_temperature(whisper_params_config.temperature);
+        params.set_no_speech_thold(whisper_params_config.no_speech_threshold);
+        
+        // Set initial prompt if available
+        if let Some(prompt) = &whisper_params_config.initial_prompt {
+            if !prompt.is_empty() {
+                params.set_initial_prompt(prompt);
+                debug!("Setting initial prompt: {}", prompt);
+            }
+        }
+        
+        // Enable token timestamps for detailed analysis
+        params.set_token_timestamps(true);
+        
+        debug!("Whisper params: temperature={}, no_speech_threshold={}, beam_size={}",
+               whisper_params_config.temperature,
+               whisper_params_config.no_speech_threshold,
+               whisper_params_config.beam_size);
 
         params
     }
@@ -602,6 +809,7 @@ impl Clone for TranscribeState {
             app_handle: self.app_handle.clone(),
             download_progress: Arc::clone(&self.download_progress),
             get_model_path: self.get_model_path.clone(),
+            voice_command_processor: Arc::clone(&self.voice_command_processor),
         }
     }
 }
@@ -778,6 +986,221 @@ pub async fn is_model_downloaded(
     Ok(path.is_ok())
 }
 
+#[tauri::command]
+pub async fn is_voice_commands_enabled(
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<bool, String> {
+    let config_manager = state.config_manager.lock();
+    Ok(config_manager.get_config().audio.voice_commands.enabled)
+}
+
+#[tauri::command]
+pub async fn set_voice_commands_enabled(
+    enabled: bool,
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<(), String> {
+    let config_manager = state.config_manager.clone();
+    let mut config_manager = config_manager.lock();
+    let config = config_manager.get_config_mut();
+    config.audio.voice_commands.enabled = enabled;
+    
+    // Save the config
+    config_manager.save().map_err(|e| e.to_string())?;
+    
+    // Update the voice command processor
+    let mut processor_guard = state.voice_command_processor.lock();
+    if enabled {
+        // Create new processor
+        match VoiceCommandProcessor::new(config.audio.voice_commands.clone()) {
+            Ok((processor, _)) => {
+                *processor_guard = Some(processor);
+                info!("Voice commands enabled");
+            },
+            Err(e) => {
+                return Err(format!("Failed to enable voice commands: {}", e));
+            }
+        }
+    } else {
+        // Disable processor
+        *processor_guard = None;
+        info!("Voice commands disabled");
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_whisper_params(
+    temperature: Option<f32>,
+    vad_enabled: Option<bool>,
+    vad_threshold: Option<f32>,
+    beam_size: Option<u32>,
+    initial_prompt: Option<String>,
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<(), String> {
+    let config_manager = state.config_manager.clone();
+    let mut config_manager = config_manager.lock();
+    let config = config_manager.get_config_mut();
+    
+    // Update whisper parameters
+    if let Some(temp) = temperature {
+        config.whisper_params.temperature = temp;
+    }
+    if let Some(vad) = vad_enabled {
+        config.whisper_params.vad_enabled = vad;
+    }
+    if let Some(threshold) = vad_threshold {
+        config.whisper_params.vad_threshold = threshold;
+    }
+    if let Some(beam) = beam_size {
+        config.whisper_params.beam_size = beam;
+    }
+    if let Some(prompt) = initial_prompt {
+        config.whisper_params.initial_prompt = Some(prompt);
+    }
+    
+    // Save the config
+    config_manager.save().map_err(|e| e.to_string())?;
+    
+    // Reset enhanced processor to use new settings
+    let mut enhanced = state.enhanced_processor.lock();
+    *enhanced = None;
+    
+    // Reset VAD if settings changed
+    if vad_enabled.is_some() || vad_threshold.is_some() {
+        let mut vad = state.vad.lock();
+        *vad = None;
+    }
+    
+    info!("Updated Whisper parameters");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_whisper_params(
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<serde_json::Value, String> {
+    let config_manager = state.config_manager.lock();
+    let params = &config_manager.get_config().whisper_params;
+    
+    Ok(json!({
+        "temperature": params.temperature,
+        "vad_enabled": params.vad_enabled,
+        "vad_threshold": params.vad_threshold,
+        "beam_size": params.beam_size,
+        "initial_prompt": params.initial_prompt,
+        "no_speech_threshold": params.no_speech_threshold,
+        "min_speech_duration_ms": params.min_speech_duration_ms,
+        "max_silence_duration_ms": params.max_silence_duration_ms,
+    }))
+}
+
+/// Add vocabulary entry
+#[tauri::command]
+pub async fn add_vocabulary_entry(
+    term: String,
+    boost: f32,
+    category: Option<String>,
+    variants: Vec<String>,
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<(), String> {
+    // Initialize vocabulary manager if not exists
+    if state.vocabulary_manager.lock().is_none() {
+        match state.initialize_vocabulary_manager() {
+            Ok(()) => {},
+            Err(e) => return Err(format!("Failed to initialize vocabulary manager: {}", e)),
+        }
+    }
+    
+    // Create vocabulary entry
+    let mut entry = VocabularyEntry::simple(term, boost);
+    entry.category = category;
+    entry.variants = variants;
+    
+    // Add to vocabulary
+    if let Some(vocab_manager) = state.vocabulary_manager.lock().as_ref() {
+        vocab_manager.add_entry(entry)
+            .map_err(|e| format!("Failed to add vocabulary entry: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+/// Remove vocabulary entry
+#[tauri::command]
+pub async fn remove_vocabulary_entry(
+    term: String,
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<(), String> {
+    if let Some(vocab_manager) = state.vocabulary_manager.lock().as_ref() {
+        vocab_manager.remove_entry(&term)
+            .map_err(|e| format!("Failed to remove vocabulary entry: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+/// Search vocabulary entries
+#[tauri::command]
+pub async fn search_vocabulary(
+    pattern: String,
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<Vec<VocabularyEntry>, String> {
+    if let Some(vocab_manager) = state.vocabulary_manager.lock().as_ref() {
+        Ok(vocab_manager.search(&pattern))
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+/// Get all vocabulary entries
+#[tauri::command]
+pub async fn get_vocabulary_entries(
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<Vec<VocabularyEntry>, String> {
+    if let Some(vocab_manager) = state.vocabulary_manager.lock().as_ref() {
+        Ok(vocab_manager.get_enabled_entries())
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+/// Import vocabulary from CSV
+#[tauri::command]
+pub async fn import_vocabulary_csv(
+    csv_path: String,
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<usize, String> {
+    // Initialize vocabulary manager if not exists
+    if state.vocabulary_manager.lock().is_none() {
+        match state.initialize_vocabulary_manager() {
+            Ok(()) => {},
+            Err(e) => return Err(format!("Failed to initialize vocabulary manager: {}", e)),
+        }
+    }
+    
+    if let Some(vocab_manager) = state.vocabulary_manager.lock().as_ref() {
+        vocab_manager.import_csv(Path::new(&csv_path))
+            .map_err(|e| format!("Failed to import vocabulary: {}", e))
+    } else {
+        Err("Vocabulary manager not initialized".to_string())
+    }
+}
+
+/// Export vocabulary to CSV
+#[tauri::command]
+pub async fn export_vocabulary_csv(
+    csv_path: String,
+    state: State<'_, Arc<TranscribeState>>
+) -> Result<usize, String> {
+    if let Some(vocab_manager) = state.vocabulary_manager.lock().as_ref() {
+        vocab_manager.export_csv(Path::new(&csv_path))
+            .map_err(|e| format!("Failed to export vocabulary: {}", e))
+    } else {
+        Err("Vocabulary manager not initialized".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -809,6 +1232,7 @@ mod tests {
             app_handle: None, // Not needed for these tests
             download_progress: Arc::new(Mutex::new(None)),
             get_model_path,
+            voice_command_processor: Arc::new(Mutex::new(None)), // Not needed for these tests
         }
     }
 

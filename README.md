@@ -4,9 +4,13 @@ BestMe is a cross-platform speech-to-text application powered by AI, designed to
 
 ## Features
 
-- Real-time speech transcription
+- Real-time speech transcription with Whisper AI
+- AI-powered text enhancement (grammar, punctuation, style)
 - Multiple language support
 - Voice command capabilities
+- Local and cloud AI providers (OpenRouter, OpenAI, Requesty)
+- Custom ONNX model support
+- GPU acceleration (CUDA, Metal, DirectML)
 - System tray integration
 - Configurable speech recognition settings
 
@@ -93,6 +97,22 @@ The application uses a configuration file located at:
 - Linux: `~/.config/bestme/BestMe/config/config.json`
 
 You can also place a `config.json` file in the `config` directory of the application or create a `settings.cfg` file in the application's root directory.
+
+## AI Features
+
+BestMe includes comprehensive AI capabilities for enhanced transcription accuracy and text processing:
+
+- **Quick Start**: See the [AI Quick Start Guide](docs/AI-QUICK-START.md) to get started
+- **Full Documentation**: Read the [AI Features Documentation](docs/AI-FEATURES.md) for detailed information
+- **API Reference**: Check the [AI API Reference](docs/AI-API-REFERENCE.md) for development
+
+### Key AI Capabilities
+
+1. **Text Enhancement**: Automatic grammar correction, punctuation, and style improvements
+2. **Multiple Providers**: Support for local (ONNX) and cloud providers (OpenRouter, OpenAI)
+3. **Custom Models**: Import and manage your own ONNX models
+4. **Intelligent Selection**: Automatic model selection based on text characteristics
+5. **GPU Acceleration**: Support for CUDA, Metal, and DirectML
 
 ## Development Status
 

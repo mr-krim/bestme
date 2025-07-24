@@ -78,4 +78,67 @@ export type AppConfig = {
     requesty_api_key: string | null;
     chat_model: string;
   };
-}; 
+};
+
+// AI Model types
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  architecture: string;
+  parameters: string;
+  size_bytes: number;
+  capabilities: string[];
+  performance_class: 'fast' | 'balanced' | 'quality';
+  hardware_requirements: {
+    min_ram_gb: number;
+    recommended_vram_gb?: number;
+    supports_gpu: boolean;
+  };
+}
+
+export interface ModelPerformance {
+  model_id: string;
+  avg_tokens_per_second: number;
+  avg_latency_ms: number;
+  memory_usage_mb: number;
+  last_updated: Date;
+}
+
+export interface DownloadInfo {
+  model_id: string;
+  model_name: string;
+  total_bytes: number;
+  downloaded_bytes: number;
+  progress_percent: number;
+  download_speed: number;
+  eta_seconds: number;
+  status: 'pending' | 'downloading' | 'verifying' | 'extracting' | 'completed' | 'failed';
+  error?: string;
+}
+
+export interface ModelConfig {
+  model_id: string;
+  batch_size: number;
+  max_tokens: number;
+  temperature: number;
+  top_p: number;
+  use_gpu: boolean;
+  gpu_device_id?: number;
+  num_threads: number;
+  memory_limit_mb?: number;
+  quantization?: 'none' | 'int8' | 'int4' | 'fp16';
+  enable_caching: boolean;
+  cache_size: number;
+  context_window: number;
+  streaming_enabled: boolean;
+  fallback_enabled: boolean;
+  timeout_ms: number;
+}
+
+export interface GpuDevice {
+  id: number;
+  name: string;
+  memory_mb: number;
+  compute_capability?: string;
+} 
