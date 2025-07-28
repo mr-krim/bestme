@@ -3,6 +3,7 @@ use std::fs;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use ort::{Environment, SessionBuilder};
+use std::sync::Arc;
 
 /// ONNX model validator
 pub struct OnnxValidator {
@@ -72,8 +73,6 @@ pub struct CompatibilityInfo {
     pub supports_dynamic_shapes: bool,
     pub supports_quantization: bool,
 }
-
-use std::sync::Arc;
 
 impl OnnxValidator {
     pub fn new() -> Result<Self, String> {
@@ -195,7 +194,7 @@ impl OnnxValidator {
         let mut input_names = Vec::new();
         let mut input_shapes = HashMap::new();
         
-        for (i, input) in session.inputs.iter().enumerate() {
+        for (_i, input) in session.inputs.iter().enumerate() {
             let name = input.name.clone();
             input_names.push(name.clone());
             

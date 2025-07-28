@@ -94,11 +94,11 @@ impl InferenceEngine {
     }
 }
 
-#[cfg(feature = "candle-core")]
+#[cfg(feature = "ai-local")]
 pub mod candle_backend {
     use super::*;
+    use crate::ai::AIError;
     use candle_core::{Device, Tensor};
-    use candle_nn::VarBuilder;
     // Model imports will be updated when implementing actual inference
     
     pub struct CandleInference {
@@ -129,12 +129,12 @@ pub mod candle_backend {
             })
         }
         
-        pub async fn generate(&self, prompt: &str, max_tokens: usize) -> Result<String> {
+        pub async fn generate(&self, prompt: &str, _max_tokens: usize) -> Result<String> {
             // Tokenize input
             let encoding = self.tokenizer.encode(prompt, false)
                 .map_err(|e| AIError::InferenceError(e.to_string()))?;
             
-            let input_ids = Tensor::new(encoding.get_ids(), &self.device)
+            let _input_ids = Tensor::new(encoding.get_ids(), &self.device)
                 .map_err(|e| AIError::InferenceError(e.to_string()))?;
             
             // Run inference
@@ -149,10 +149,11 @@ pub mod candle_backend {
     }
 }
 
-#[cfg(feature = "ort")]
+#[cfg(feature = "ai-local")]
 pub mod onnx_backend {
     use super::*;
-    use ort::{Session, SessionBuilder, Value};
+    use crate::ai::AIError;
+    use ort::{Environment, GraphOptimizationLevel, Session, SessionBuilder};
     
     pub struct ONNXInference {
         session: Session,
@@ -161,9 +162,23 @@ pub mod onnx_backend {
     
     impl ONNXInference {
         pub async fn new(model_path: &std::path::Path) -> Result<Self> {
-            // Load ONNX model
-            let session = Session::new(model_path)
-                .map_err(|e| AIError::ModelNotFound(e.to_string()))?;
+            // Create ONNX environment
+            let environment = std::sync::Arc::new(
+                Environment::builder()
+                    .with_name("bestme_onnx")
+                    .build()
+                    .map_err(|e| AIError::ConfigError(format!("Failed to create ONNX environment: {}", e)))?
+            );
+            
+            // Create session
+            let session = SessionBuilder::new(&environment)
+                .map_err(|e| AIError::ConfigError(format!("Failed to create session builder: {}", e)))?
+                .with_optimization_level(GraphOptimizationLevel::Level3)
+                .map_err(|e| AIError::ConfigError(format!("Failed to set optimization level: {}", e)))?
+                .with_intra_threads(4)
+                .map_err(|e| AIError::ConfigError(format!("Failed to set threads: {}", e)))?
+                .with_model_from_file(model_path)
+                .map_err(|e| AIError::ModelNotFound(format!("Failed to load ONNX model: {}", e)))?;
             
             // Load tokenizer
             let tokenizer_path = model_path.with_extension("json");
@@ -173,26 +188,9 @@ pub mod onnx_backend {
             Ok(Self { session, tokenizer })
         }
         
-        pub async fn run(&self, text: &str) -> Result<String> {
-            // Tokenize input
-            let encoding = self.tokenizer.encode(text, false)
-                .map_err(|e| AIError::InferenceError(e.to_string()))?;
-            
-            // Prepare input tensor
-            let input_ids = encoding.get_ids();
-            let input_tensor = Value::from_array(
-                vec![1, input_ids.len()],
-                input_ids,
-            ).map_err(|e| AIError::InferenceError(e.to_string()))?;
-            
-            // Run inference
-            let inputs = vec![("input".to_string(), input_tensor)];
-            let outputs = self.session.run(inputs)
-                .map_err(|e| AIError::InferenceError(e.to_string()))?;
-            
-            // Process outputs
-            // This is simplified - real implementation would decode the output properly
-            Ok("ONNX inference result".to_string())
+        pub async fn run(&self, _text: &str) -> Result<String> {
+            // Placeholder implementation
+            Ok("ONNX inference not yet implemented".to_string())
         }
     }
 }

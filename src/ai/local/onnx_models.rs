@@ -110,7 +110,7 @@ impl OnnxGrammarModel {
         let corr_words: Vec<&str> = corrected.split_whitespace().collect();
         
         let mut orig_pos = 0;
-        for (i, (orig_word, corr_word)) in orig_words.iter().zip(corr_words.iter()).enumerate() {
+        for (_i, (orig_word, corr_word)) in orig_words.iter().zip(corr_words.iter()).enumerate() {
             if orig_word != corr_word {
                 corrections.push(Correction {
                     start: orig_pos,

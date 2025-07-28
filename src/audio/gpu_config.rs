@@ -38,16 +38,6 @@ pub fn get_available_gpu_backend() -> Option<&'static str> {
         return Some("Metal");
     }
     
-    #[cfg(feature = "gpu-vulkan")]
-    {
-        return Some("Vulkan");
-    }
-    
-    #[cfg(feature = "gpu-hipblas")]
-    {
-        return Some("HIP/ROCm");
-    }
-    
     None
 }
 

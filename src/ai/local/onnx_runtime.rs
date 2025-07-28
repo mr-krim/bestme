@@ -286,7 +286,7 @@ impl OnnxRuntimeModel {
         let enhanced_words: Vec<&str> = enhanced.split_whitespace().collect();
         
         let mut pos = 0;
-        for (i, (orig, enh)) in original_words.iter().zip(enhanced_words.iter()).enumerate() {
+        for (_i, (orig, enh)) in original_words.iter().zip(enhanced_words.iter()).enumerate() {
             if orig != enh {
                 corrections.push(Correction {
                     start: pos,

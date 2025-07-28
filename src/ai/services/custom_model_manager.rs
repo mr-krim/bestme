@@ -211,7 +211,7 @@ impl CustomModelManager {
         let capabilities = self.detect_capabilities(model_info, model_type);
         
         // Determine performance class based on size and parameters
-        let performance_class = if model_info.estimated_parameters < 100_000_000 {
+        let _performance_class = if model_info.estimated_parameters < 100_000_000 {
             "fast"
         } else if model_info.estimated_parameters < 1_000_000_000 {
             "balanced"
@@ -455,7 +455,7 @@ impl CustomModelManager {
     pub async fn delete_model(&self, model_id: &str) -> Result<(), String> {
         let mut models = self.custom_models.write().await;
         
-        if let Some(model) = models.remove(model_id) {
+        if let Some(_model) = models.remove(model_id) {
             // Remove from registry
             self.registry.remove_custom_model(model_id).await
                 .map_err(|e| e.to_string())?;

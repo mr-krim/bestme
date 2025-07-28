@@ -170,7 +170,7 @@ impl TelemetryExporter {
     
     /// Export to HTTP endpoint
     async fn export_to_http(&self, data: &[TelemetryData], url: &str) -> Result<()> {
-        let body = match self.config.format {
+        let _body = match self.config.format {
             ExportFormat::Json => self.format_json(data)?,
             ExportFormat::OpenTelemetry => self.format_otlp(data)?,
             _ => return Err(AIError::ConfigError("Unsupported format for HTTP export".to_string())),

@@ -322,7 +322,7 @@ impl BatchProcessor {
     ) -> mpsc::Receiver<BatchResult> {
         let (result_tx, result_rx) = mpsc::channel(100);
         let model = self.model.clone();
-        let semaphore = self.semaphore.clone();
+        let _semaphore = self.semaphore.clone();
         let options = options.clone();
         
         tokio::spawn(async move {

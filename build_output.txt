@@ -1,0 +1,272 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/rd/bestme/src-tauri/Cargo.toml
+workspace: /home/rd/bestme/Cargo.toml
+   Compiling bestme v0.1.0 (/home/rd/bestme)
+   Compiling windows v0.58.0
+error: cannot find macro `warn` in this scope
+  --> src/gui/mod.rs:70:13
+   |
+70 |             warn!("Linux GUI initialization is a placeholder - not fully implemented");
+   |             ^^^^
+   |
+   = note: `warn` is in scope, but it is an attribute: `#[warn]`
+help: consider importing this macro
+   |
+11 + use log::warn;
+   |
+
+error: cannot find macro `warn` in this scope
+   --> src/gui/mod.rs:157:13
+    |
+157 |             warn!("Linux native GUI not fully implemented yet. Falling back to console mode.");
+    |             ^^^^
+    |
+    = note: `warn` is in scope, but it is an attribute: `#[warn]`
+help: consider importing this macro
+    |
+11  + use log::warn;
+    |
+
+warning: unexpected `cfg` condition value: `gpu-vulkan`
+  --> src/audio/mod.rs:17:56
+   |
+17 | #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+   = help: consider adding `gpu-vulkan` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `gpu-hipblas`
+  --> src/audio/mod.rs:17:80
+   |
+17 | #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+   |                                                                                ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+   = help: consider adding `gpu-hipblas` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-vulkan`
+  --> src/audio/mod.rs:20:56
+   |
+20 | #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+   = help: consider adding `gpu-vulkan` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-hipblas`
+  --> src/audio/mod.rs:20:80
+   |
+20 | #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+   |                                                                                ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+   = help: consider adding `gpu-hipblas` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-vulkan`
+  --> src/audio/mod.rs:23:56
+   |
+23 | #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+   = help: consider adding `gpu-vulkan` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-hipblas`
+  --> src/audio/mod.rs:23:80
+   |
+23 | #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+   |                                                                                ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+   = help: consider adding `gpu-hipblas` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-vulkan`
+   --> src/audio/transcribe.rs:189:72
+    |
+189 |                 #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+    |                                                                        ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+    = help: consider adding `gpu-vulkan` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-hipblas`
+   --> src/audio/transcribe.rs:189:96
+    |
+189 |                 #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+    |                                                                                                ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+    = help: consider adding `gpu-hipblas` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-vulkan`
+   --> src/audio/transcribe.rs:199:72
+    |
+199 |                 #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+    |                                                                        ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+    = help: consider adding `gpu-vulkan` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-hipblas`
+   --> src/audio/transcribe.rs:199:96
+    |
+199 |                 #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+    |                                                                                                ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+    = help: consider adding `gpu-hipblas` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-vulkan`
+   --> src/audio/transcribe.rs:202:76
+    |
+202 |                 #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas")))]
+    |                                                                            ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+    = help: consider adding `gpu-vulkan` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `gpu-hipblas`
+   --> src/audio/transcribe.rs:202:100
+    |
+202 |                 #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas")))]
+    |                                                                                                    ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+    = help: consider adding `gpu-hipblas` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `candle-core`
+  --> src/ai/local/inference.rs:97:7
+   |
+97 | #[cfg(feature = "candle-core")]
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+   = help: consider adding `candle-core` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `ort`
+   --> src/ai/local/inference.rs:152:7
+    |
+152 | #[cfg(feature = "ort")]
+    |       ^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `ai-all`, `ai-cloud`, `ai-local`, `audio`, `commands`, `config`, `default`, `gpu-all`, `gpu-cuda`, `gpu-metal`, `opencl3`, `storage`, `tauri-2`, `text-injection`, `transcribe`, and `whisper`
+    = help: consider adding `ort` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: use of deprecated function `opentelemetry_sdk::trace::config`: Use Config::default() instead
+   --> src/ai/telemetry/mod.rs:118:24
+    |
+118 |                 trace::config()
+    |                        ^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `opentelemetry_sdk::trace::config`: Use Config::default() instead
+   --> src/ai/telemetry/mod.rs:130:24
+    |
+130 |                 trace::config()
+    |                        ^^^^^^
+
+warning: unused variable: `semaphore`
+   --> src/ai/local/batch_processor.rs:325:13
+    |
+325 |         let semaphore = self.semaphore.clone();
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_semaphore`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `characteristics`
+   --> src/ai/services/model_selector.rs:243:9
+    |
+243 |         characteristics: &TextCharacteristics,
+    |         ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_characteristics`
+
+warning: unused variable: `performance_class`
+   --> src/ai/services/custom_model_manager.rs:214:13
+    |
+214 |         let performance_class = if model_info.estimated_parameters < 100_000_000 {
+    |             ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_performance_class`
+
+warning: unused variable: `model`
+   --> src/ai/services/custom_model_manager.rs:458:21
+    |
+458 |         if let Some(model) = models.remove(model_id) {
+    |                     ^^^^^ help: if this is intentional, prefix it with an underscore: `_model`
+
+warning: unused variable: `initial_memory`
+  --> src/ai/benchmarks/model_benchmark.rs:34:13
+   |
+34 |         let initial_memory = self.get_memory_usage();
+   |             ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_initial_memory`
+
+warning: unused variable: `body`
+   --> src/ai/telemetry/exporter.rs:173:13
+    |
+173 |         let body = match self.config.format {
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_body`
+
+warning: unused variable: `max_attempts`
+   --> src/ai/resilience/recovery.rs:347:9
+    |
+347 |         max_attempts: u32,
+    |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_max_attempts`
+
+warning: unused variable: `verify_checksum`
+   --> src/ai/resilience/recovery.rs:348:9
+    |
+348 |         verify_checksum: bool,
+    |         ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_verify_checksum`
+
+warning: unused variable: `text`
+   --> src/text_injection/linux.rs:310:36
+    |
+310 |     async fn paste_text_x11(&self, text: &str, restore_clipboard: bool) -> Result<()> {
+    |                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_text`
+
+warning: unused variable: `restore_clipboard`
+   --> src/text_injection/linux.rs:310:48
+    |
+310 |     async fn paste_text_x11(&self, text: &str, restore_clipboard: bool) -> Result<()> {
+    |                                                ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_restore_clipboard`
+
+warning: unused variable: `i`
+   --> src/ai/local/onnx_models.rs:113:14
+    |
+113 |         for (i, (orig_word, corr_word)) in orig_words.iter().zip(corr_words.iter()).enumerate() {
+    |              ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `i`
+   --> src/ai/local/onnx_runtime.rs:289:14
+    |
+289 |         for (i, (orig, enh)) in original_words.iter().zip(enhanced_words.iter()).enumerate() {
+    |              ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `i`
+   --> src/ai/services/onnx_validator.rs:198:14
+    |
+198 |         for (i, input) in session.inputs.iter().enumerate() {
+    |              ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `reader`
+  --> src/ai/telemetry/mod.rs:65:9
+   |
+65 |     let reader = if let Some(endpoint) = &config.otlp_endpoint {
+   |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_reader`
+
+warning: `bestme` (lib) generated 30 warnings
+error: could not compile `bestme` (lib) due to 2 previous errors; 30 warnings emitted

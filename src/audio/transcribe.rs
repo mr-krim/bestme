@@ -186,7 +186,7 @@ impl TranscriptionManager {
                 let params = WhisperContextParameters::new();
                 
                 // Enable GPU if any GPU feature is enabled
-                #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+                #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
                 {
                     params.use_gpu(true);
                     info!("GPU acceleration enabled for Whisper");
@@ -196,10 +196,10 @@ impl TranscriptionManager {
                     .map_err(|e| anyhow::anyhow!("Failed to load whisper model: {}", e))?;
                 self.whisper_context = Some(Arc::new(whisper));
                 
-                #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+                #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
                 info!("Whisper model loaded successfully with GPU acceleration");
                 
-                #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas")))]
+                #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal")))]
                 info!("Whisper model loaded successfully (CPU mode)");
             }
         }

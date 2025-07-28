@@ -66,13 +66,13 @@ impl GpuBenchmark {
         info!("Starting GPU benchmark suite");
         
         // Get GPU status
-        #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+        #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
         let gpu_info = {
             use crate::audio::gpu_config;
             gpu_config::get_gpu_status()
         };
         
-        #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas")))]
+        #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal")))]
         let gpu_info = crate::audio::gpu_config::GpuStatus {
             gpu_available: false,
             backend: None,
@@ -153,7 +153,7 @@ impl GpuBenchmark {
             total_time += elapsed;
             
             // Log memory usage if available
-            #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+            #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
             {
                 use crate::audio::gpu_config;
                 gpu_config::log_gpu_memory_usage(&gpu_config::GpuConfig::default());
@@ -235,7 +235,7 @@ impl GpuBenchmark {
         report.push_str("# GPU Benchmark Report\n\n");
         
         // GPU info
-        #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+        #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
         {
             use crate::audio::gpu_config;
             let gpu_info = gpu_config::get_gpu_status();

@@ -307,7 +307,7 @@ impl LinuxInjector {
     
     /// Paste text using X11 clipboard
     #[cfg(target_os = "linux")]
-    async fn paste_text_x11(&self, text: &str, restore_clipboard: bool) -> Result<()> {
+    async fn paste_text_x11(&self, _text: &str, _restore_clipboard: bool) -> Result<()> {
         // For now, we'll simulate Ctrl+V after setting clipboard
         // This would need proper X11 clipboard handling
         let display = self.x11_display

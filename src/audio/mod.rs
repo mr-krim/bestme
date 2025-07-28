@@ -14,13 +14,13 @@ pub mod ai_voice_commands;
 #[cfg(any(feature = "ai-local", feature = "ai-cloud"))]
 pub mod ai_enhancement;
 
-#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
 pub mod gpu;
 
-#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
 pub mod gpu_config;
 
-#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+#[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
 pub mod gpu_benchmark;
 
 #[cfg(test)]

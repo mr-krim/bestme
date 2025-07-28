@@ -119,7 +119,7 @@ async fn run_benchmark(
     config.audio.speech.model_size = model_size.clone();
     
     // Enable GPU if requested and available
-    #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+    #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
     {
         if gpu_enabled {
             info!("GPU acceleration enabled");
@@ -428,12 +428,12 @@ async fn main() -> Result<()> {
 
 /// Check if GPU features are available at compile time
 fn check_gpu_available() -> bool {
-    #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+    #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
     {
         true
     }
     
-    #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas")))]
+    #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal")))]
     {
         false
     }

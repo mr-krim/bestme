@@ -62,7 +62,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> Result<TelemetryHandle> {
 
 /// Initialize metrics collection
 fn init_metrics(config: &TelemetryConfig) -> Result<Option<Meter>> {
-    let reader = if let Some(endpoint) = &config.otlp_endpoint {
+    let _reader = if let Some(endpoint) = &config.otlp_endpoint {
         // Use OTLP exporter
         let exporter_builder = opentelemetry_otlp::new_exporter()
             .tonic();
@@ -115,7 +115,7 @@ fn init_tracing(config: &TelemetryConfig) -> Result<()> {
             .with_batch_exporter(exporter, runtime::Tokio)
             // .with_id_generator(RandomIdGenerator::default()) // Not available in this version
             .with_config(
-                trace::config()
+                trace::Config::default()
                     .with_sampler(Sampler::AlwaysOn)
             )
             .build()
@@ -127,7 +127,7 @@ fn init_tracing(config: &TelemetryConfig) -> Result<()> {
             .with_simple_exporter(exporter)
             // .with_id_generator(RandomIdGenerator::default()) // Not available in this version
             .with_config(
-                trace::config()
+                trace::Config::default()
                     .with_sampler(Sampler::AlwaysOn)
             )
             .build()

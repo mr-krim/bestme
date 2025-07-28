@@ -240,7 +240,7 @@ impl ModelSelector {
     async fn score_models(
         &self,
         requirements: &ModelRequirements,
-        characteristics: &TextCharacteristics,
+        _characteristics: &TextCharacteristics,
         models: &[ModelMetadata],
     ) -> Result<Vec<(ModelMetadata, CapabilityScore, f32, Option<f32>)>, String> {
         let mut scored_models = Vec::new();

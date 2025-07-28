@@ -344,8 +344,8 @@ impl RecoveryManager {
     async fn execute_redownload(
         &self,
         model_id: &str,
-        max_attempts: u32,
-        verify_checksum: bool,
+        _max_attempts: u32,
+        _verify_checksum: bool,
     ) -> Result<()> {
         info!("Executing model redownload for: {}", model_id);
         

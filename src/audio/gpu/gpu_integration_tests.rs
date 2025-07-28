@@ -133,12 +133,12 @@ mod tests {
 
     /// Check if GPU features are enabled
     fn check_gpu_enabled() -> bool {
-        #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+        #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
         {
             true
         }
         
-        #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas")))]
+        #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal")))]
         {
             false
         }
@@ -302,7 +302,7 @@ mod tests {
                         info!("Iteration {} initialized", i);
                         
                         // Log GPU memory if available
-                        #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+                        #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal"))]
                         {
                             use crate::audio::gpu_config;
                             let gpu_config = gpu_config::GpuConfig::default();

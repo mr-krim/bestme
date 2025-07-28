@@ -9,7 +9,7 @@ mod settings;
 mod icons;
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 use parking_lot::Mutex;
 use std::sync::Arc;
 

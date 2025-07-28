@@ -31,7 +31,7 @@ impl ModelBenchmark {
         let model = self.model_service.load_model(model_id).await?;
         
         // Get initial memory usage
-        let initial_memory = self.get_memory_usage();
+        let _initial_memory = self.get_memory_usage();
         
         // Run warmup
         self.warmup_model(&model).await?;
