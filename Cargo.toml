@@ -141,6 +141,9 @@ features = [
     "Win32_Storage_FileSystem",
     "Win32_Media_Audio",
     "Win32_Devices_FunctionDiscovery",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_Security_Authentication_Identity",
 ]
 
 # For Phase 4 and later
