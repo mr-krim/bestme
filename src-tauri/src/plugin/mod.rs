@@ -1,10 +1,19 @@
 pub mod audio;
 pub mod transcribe;
 pub mod voice_commands;
+pub mod storage;
+pub mod text_injection;
+pub mod ai;
 
 pub use audio::AudioPlugin;
 pub use audio::AudioState;
 pub use transcribe::TranscribePlugin;
 pub use transcribe::TranscribeState;
 pub use voice_commands::VoiceCommandPlugin;
-pub use voice_commands::VoiceCommandState; 
+pub use voice_commands::VoiceCommandState;
+pub use storage::StoragePlugin;
+pub use storage::StorageState;
+pub use text_injection::TextInjectionPlugin;
+pub use text_injection::TextInjectionState;
+pub use ai::AIPlugin;
+pub use ai::AIState; 

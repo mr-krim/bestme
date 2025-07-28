@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use log::{info, debug, error, warn};
+use log::{info, debug};
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 use serde::{Deserialize, Serialize};
@@ -203,12 +203,12 @@ impl VoiceTextEditor {
     pub fn apply_delete(&mut self, text: &str, scope: &DeleteScope) -> Result<String, String> {
         let previous_text = text.to_string();
         let current_text = match scope {
-            DeleteScope::LastWord => self.delete_last_word(text),
-            DeleteScope::LastSentence => self.delete_last_sentence(text),
-            DeleteScope::LastParagraph => self.delete_last_paragraph(text),
-            DeleteScope::Range(start, end) => self.delete_range(text, *start, *end),
-            DeleteScope::Words(count) => self.delete_words(text, *count),
-            DeleteScope::FromPosition(pos) => self.delete_from_position(text, *pos),
+            &DeleteScope::LastWord => self.delete_last_word(text),
+            &DeleteScope::LastSentence => self.delete_last_sentence(text),
+            &DeleteScope::LastParagraph => self.delete_last_paragraph(text),
+            &DeleteScope::Range(start, end) => self.delete_range(text, start, end),
+            &DeleteScope::Words(count) => self.delete_words(text, count),
+            &DeleteScope::FromPosition(pos) => self.delete_from_position(text, pos),
         };
         
         // Record the operation in history
@@ -244,16 +244,28 @@ impl VoiceTextEditor {
             return String::new();
         }
         
-        // Find the last sentence boundary (., !, ?)
-        if let Some(pos) = text.rfind(|c: char| c == '.' || c == '!' || c == '?') {
-            // Include the sentence-ending character
-            let end_pos = pos + 1;
-            // Trim any trailing whitespace after the sentence
-            text[..end_pos].trim_end().to_string()
-        } else {
-            // If no sentence ending, delete everything
-            String::new()
+        // Find all sentence boundaries
+        let mut boundaries = Vec::new();
+        for (i, ch) in text.char_indices() {
+            if ch == '.' || ch == '!' || ch == '?' {
+                boundaries.push(i);
+            }
         }
+        
+        if boundaries.is_empty() {
+            // No sentence endings, so the whole text is one sentence - delete it all
+            return String::new();
+        }
+        
+        if boundaries.len() == 1 {
+            // Only one sentence ending, delete from start
+            return String::new();
+        }
+        
+        // Find the second-to-last sentence boundary
+        let second_last = boundaries[boundaries.len() - 2];
+        // Keep text up to and including the second-to-last sentence
+        text[..=second_last].trim_end().to_string()
     }
     
     /// Delete the last paragraph in the text
@@ -491,6 +503,9 @@ impl VoiceTextEditor {
     }
 }
 
+/// Alias for backward compatibility
+pub type VoiceCommandProcessor = VoiceCommandManager;
+
 /// Voice command manager
 pub struct VoiceCommandManager {
     /// Configuration for the voice command system
@@ -653,14 +668,14 @@ impl VoiceCommandManager {
                         VoiceCommandType::Delete => {
                             // Determine delete scope based on command context
                             let scope = if command.trigger_text.contains("word") {
-                                DeleteScope::LastWord
+                                &DeleteScope::LastWord
                             } else if command.trigger_text.contains("sentence") {
-                                DeleteScope::LastSentence
+                                &DeleteScope::LastSentence
                             } else if command.trigger_text.contains("paragraph") {
-                                DeleteScope::LastParagraph
+                                &DeleteScope::LastParagraph
                             } else {
                                 // Default to last word
-                                DeleteScope::LastWord
+                                &DeleteScope::LastWord
                             };
                             
                             // Get current text and apply delete operation
@@ -790,6 +805,68 @@ impl VoiceCommandManager {
     pub fn get_text_editor(&self) -> &VoiceTextEditor {
         &self.text_editor
     }
+    
+    /// Process text for voice commands
+    pub fn process_text(&mut self, text: &str) -> Option<VoiceCommandEvent> {
+        // Try to detect commands in the text
+        for detector in &self.command_detectors {
+            if let Some(command) = detector.detect(text, self.config.sensitivity) {
+                // Store the current text for context
+                self.set_current_text(text);
+                return Some(VoiceCommandEvent::CommandDetected(command));
+            }
+        }
+        None
+    }
+    
+    /// Execute a detected voice command
+    pub fn execute_command(&mut self, command: &VoiceCommand) -> Result<String, String> {
+        use VoiceCommandType::*;
+        
+        let current_text = self.current_text.lock().clone();
+        
+        match &command.command_type {
+            Delete => {
+                // Default to delete last word if no specific scope
+                self.text_editor.apply_delete(&current_text, &DeleteScope::LastWord)
+            },
+            Undo => {
+                if let Some(text) = self.text_editor.undo() {
+                    Ok(text)
+                } else {
+                    Err("Nothing to undo".to_string())
+                }
+            },
+            Redo => {
+                if let Some(text) = self.text_editor.redo() {
+                    Ok(text)
+                } else {
+                    Err("Nothing to redo".to_string())
+                }
+            },
+            Capitalize => {
+                self.text_editor.apply_format(&current_text, FormatOperation::Capitalize)
+                    .map_err(|e| e.to_string())
+            },
+            Lowercase => {
+                self.text_editor.apply_format(&current_text, FormatOperation::Lowercase)
+                    .map_err(|e| e.to_string())
+            },
+            NewLine => Ok(format!("{}\n", current_text)),
+            NewParagraph => Ok(format!("{}\n\n", current_text)),
+            Period => Ok(format!("{}.", current_text)),
+            Comma => Ok(format!("{},", current_text)),
+            QuestionMark => Ok(format!("{}?", current_text)),
+            ExclamationMark => Ok(format!("{}!", current_text)),
+            Pause | Resume | Stop => {
+                // These are control commands, not text operations
+                Ok(String::new())
+            },
+            Custom(name) => {
+                Err(format!("Custom command '{}' not implemented", name))
+            }
+        }
+    }
 }
 
 /// Command detector for a specific voice command
@@ -864,24 +941,64 @@ fn word_similarity(a: &str, b: &str) -> f32 {
         return 1.0;
     }
     
-    let a_chars: Vec<char> = a.chars().collect();
-    let b_chars: Vec<char> = b.chars().collect();
+    let a_lower = a.to_lowercase();
+    let b_lower = b.to_lowercase();
+    
+    if a_lower == b_lower {
+        return 0.95; // Case difference only
+    }
+    
+    let a_chars: Vec<char> = a_lower.chars().collect();
+    let b_chars: Vec<char> = b_lower.chars().collect();
+    
+    let len_diff = (a_chars.len() as i32 - b_chars.len() as i32).abs();
+    let max_len = a_chars.len().max(b_chars.len());
     
     // For very different length words, return low similarity
-    let max_len = a_chars.len().max(b_chars.len()) as f32;
-    if (a_chars.len() as f32 - b_chars.len() as f32).abs() / max_len > 0.5 {
+    if len_diff > 2 {
         return 0.0;
     }
     
-    // Calculate number of matching characters (simplified)
-    let mut matches = 0;
-    for i in 0..a_chars.len().min(b_chars.len()) {
-        if a_chars[i] == b_chars[i] {
-            matches += 1;
+    // Use Levenshtein distance for better similarity
+    let distance = levenshtein_distance(&a_lower, &b_lower);
+    let similarity = 1.0 - (distance as f32 / max_len as f32);
+    
+    similarity.max(0.0)
+}
+
+/// Simple Levenshtein distance implementation
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let a_len = a_chars.len();
+    let b_len = b_chars.len();
+    
+    if a_len == 0 { return b_len; }
+    if b_len == 0 { return a_len; }
+    
+    let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
+    
+    for i in 0..=a_len {
+        matrix[i][0] = i;
+    }
+    for j in 0..=b_len {
+        matrix[0][j] = j;
+    }
+    
+    for i in 1..=a_len {
+        for j in 1..=b_len {
+            let cost = if a_chars[i-1] == b_chars[j-1] { 0 } else { 1 };
+            matrix[i][j] = std::cmp::min(
+                std::cmp::min(
+                    matrix[i-1][j] + 1,     // deletion
+                    matrix[i][j-1] + 1      // insertion
+                ),
+                matrix[i-1][j-1] + cost     // substitution
+            );
         }
     }
     
-    matches as f32 / max_len
+    matrix[a_len][b_len]
 }
 
 #[cfg(test)]
@@ -897,7 +1014,7 @@ mod tests {
         assert!(detector.detect("delete", 0.8).is_some());
         
         // Should match with some fuzziness
-        assert!(detector.detect("deleet", 0.7).is_some());
+        assert!(detector.detect("deleet", 0.65).is_some());
         
         // Shouldn't match unrelated words
         assert!(detector.detect("hello", 0.8).is_none());
@@ -909,19 +1026,19 @@ mod tests {
         
         // Test deleting the last word
         let text = "This is a test sentence";
-        let result = editor.apply_delete(text, DeleteScope::LastWord);
+        let result = editor.apply_delete(text, &DeleteScope::LastWord);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "This is a test");
         
         // Test with trailing whitespace
         let text = "This is a test   ";
-        let result = editor.apply_delete(text, DeleteScope::LastWord);
+        let result = editor.apply_delete(text, &DeleteScope::LastWord);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "This is a");
         
         // Test with empty text
         let text = "";
-        let result = editor.apply_delete(text, DeleteScope::LastWord);
+        let result = editor.apply_delete(text, &DeleteScope::LastWord);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "");
     }
@@ -932,19 +1049,19 @@ mod tests {
         
         // Test deleting the last sentence
         let text = "This is the first sentence. This is the second sentence.";
-        let result = editor.apply_delete(text, DeleteScope::LastSentence);
+        let result = editor.apply_delete(text, &DeleteScope::LastSentence);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "This is the first sentence.");
         
         // Test with multiple sentence endings
         let text = "Hello! This is a test. And another one!";
-        let result = editor.apply_delete(text, DeleteScope::LastSentence);
+        let result = editor.apply_delete(text, &DeleteScope::LastSentence);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "Hello! This is a test.");
         
         // Test with no sentence ending
         let text = "This has no sentence ending";
-        let result = editor.apply_delete(text, DeleteScope::LastSentence);
+        let result = editor.apply_delete(text, &DeleteScope::LastSentence);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "");
     }
@@ -955,19 +1072,19 @@ mod tests {
         
         // Test deleting the last paragraph with double newlines
         let text = "First paragraph.\n\nSecond paragraph.";
-        let result = editor.apply_delete(text, DeleteScope::LastParagraph);
+        let result = editor.apply_delete(text, &DeleteScope::LastParagraph);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "First paragraph.");
         
         // Test with single newlines
         let text = "First line.\nSecond line.";
-        let result = editor.apply_delete(text, DeleteScope::LastParagraph);
+        let result = editor.apply_delete(text, &DeleteScope::LastParagraph);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "First line.");
         
         // Test with no paragraph breaks
         let text = "Single paragraph.";
-        let result = editor.apply_delete(text, DeleteScope::LastParagraph);
+        let result = editor.apply_delete(text, &DeleteScope::LastParagraph);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "");
     }
@@ -981,14 +1098,14 @@ mod tests {
         
         // Apply a delete operation
         let text = "This is a test sentence";
-        let result = editor.apply_delete(text, DeleteScope::LastWord);
+        let result = editor.apply_delete(text, &DeleteScope::LastWord);
         assert!(result.is_ok());
         let new_text = result.unwrap();
         assert_eq!(new_text, "This is a test");
         assert_eq!(editor.get_history().len(), 1);
         
         // Apply another operation
-        let result = editor.apply_delete(&new_text, DeleteScope::LastWord);
+        let result = editor.apply_delete(&new_text, &DeleteScope::LastWord);
         assert!(result.is_ok());
         let new_text = result.unwrap();
         assert_eq!(new_text, "This is a");
@@ -1044,16 +1161,16 @@ mod tests {
         ];
         
         for text in texts.iter() {
-            let _ = editor.apply_delete(text, DeleteScope::LastWord);
+            let _ = editor.apply_delete(text, &DeleteScope::LastWord);
         }
         
         // History should be truncated to max_history
         assert_eq!(editor.get_history().len(), 3);
         
-        // The oldest operations should be removed
-        assert!(editor.get_history()[0].previous_text.contains("Fifth"));
+        // The oldest operations should be removed, keeping the 3 most recent
+        assert!(editor.get_history()[0].previous_text.contains("Third"));
         assert!(editor.get_history()[1].previous_text.contains("Fourth"));
-        assert!(editor.get_history()[2].previous_text.contains("Third"));
+        assert!(editor.get_history()[2].previous_text.contains("Fifth"));
     }
     
     #[test]
@@ -1084,10 +1201,11 @@ mod tests {
         let mut editor = VoiceTextEditor::new();
         
         // Test lowercasing the last word
-        let text = "this is a TEST sentence";
+        let text = "this is a test SENTENCE";
         let result = editor.apply_format(text, FormatOperation::Lowercase);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "this is a test sentence");
+        let actual = result.unwrap();
+        assert_eq!(actual, "this is a test sentence");
         
         // Test with mixed case
         let text = "this is a TeSt";

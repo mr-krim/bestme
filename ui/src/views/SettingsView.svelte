@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import TextInjectionSettings from '../components/TextInjectionSettings.svelte';
+  import GpuSettings from '../components/GpuSettings.svelte';
+  import AISettings from '../components/AISettings.svelte';
+  import AIVoiceCommands from '../components/ai/AIVoiceCommands.svelte';
   
   // Settings state
   let audioDevices: [string, string][] = []; // Expecting [id, name] tuples
@@ -15,6 +19,12 @@
   let selectedLanguage = 'auto';
   let autoPunctuate = true;
   let translateToEnglish = false;
+  
+  // VAD (Voice Activity Detection) settings
+  let vadEnabled = true;
+  let vadThreshold = 0.5;
+  let minSpeechDuration = 250;
+  let maxSilenceDuration = 2000;
   
   // Tab selection
   let activeTab = 'general';
@@ -33,6 +43,10 @@
   let initialSelectedLanguage: string | null = null;
   let initialAutoPunctuate: boolean | null = null;
   let initialTranslateToEnglish: boolean | null = null;
+  let initialVadEnabled: boolean | null = null;
+  let initialVadThreshold: number | null = null;
+  let initialMinSpeechDuration: number | null = null;
+  let initialMaxSilenceDuration: number | null = null;
   
   onMount(async () => {
     try {
@@ -57,6 +71,10 @@
       const defaultLanguage = 'auto';
       const defaultAutoPunctuate = true;
       const defaultTranslateToEnglish = false;
+      const defaultVadEnabled = true;
+      const defaultVadThreshold = 0.5;
+      const defaultMinSpeechDuration = 250;
+      const defaultMaxSilenceDuration = 2000;
 
       // Apply loaded settings or fall back to defaults
       if (settingsData) {
@@ -68,6 +86,13 @@
         selectedLanguage = settingsData.audio?.speech?.language || defaultLanguage;
         autoPunctuate = settingsData.audio?.speech?.auto_punctuate ?? defaultAutoPunctuate;
         translateToEnglish = settingsData.audio?.speech?.translate_to_english ?? defaultTranslateToEnglish;
+        
+        // Load VAD settings from whisper_params
+        const whisperParams = settingsData.audio?.speech?.whisper_params;
+        vadEnabled = whisperParams?.vad_enabled ?? defaultVadEnabled;
+        vadThreshold = whisperParams?.vad_threshold ?? defaultVadThreshold;
+        minSpeechDuration = whisperParams?.min_speech_duration_ms ?? defaultMinSpeechDuration;
+        maxSilenceDuration = whisperParams?.max_silence_duration_ms ?? defaultMaxSilenceDuration;
       } else {
         // Fallback to defaults if settings couldn't be loaded
         selectedDevice = defaultDevice;
@@ -77,6 +102,10 @@
         selectedLanguage = defaultLanguage;
         autoPunctuate = defaultAutoPunctuate;
         translateToEnglish = defaultTranslateToEnglish;
+        vadEnabled = defaultVadEnabled;
+        vadThreshold = defaultVadThreshold;
+        minSpeechDuration = defaultMinSpeechDuration;
+        maxSilenceDuration = defaultMaxSilenceDuration;
       }
 
       // Store initial values *after* applying loaded settings or defaults
@@ -87,6 +116,10 @@
       initialSelectedLanguage = selectedLanguage;
       initialAutoPunctuate = autoPunctuate;
       initialTranslateToEnglish = translateToEnglish;
+      initialVadEnabled = vadEnabled;
+      initialVadThreshold = vadThreshold;
+      initialMinSpeechDuration = minSpeechDuration;
+      initialMaxSilenceDuration = maxSilenceDuration;
 
     } catch (error) {
       console.error("Failed to load settings data:", error);
@@ -122,7 +155,11 @@
     offlineMode !== initialOfflineMode ||
     selectedLanguage !== initialSelectedLanguage ||
     autoPunctuate !== initialAutoPunctuate ||
-    translateToEnglish !== initialTranslateToEnglish;
+    translateToEnglish !== initialTranslateToEnglish ||
+    vadEnabled !== initialVadEnabled ||
+    vadThreshold !== initialVadThreshold ||
+    minSpeechDuration !== initialMinSpeechDuration ||
+    maxSilenceDuration !== initialMaxSilenceDuration;
 
   // Save settings
   async function saveSettings() {
@@ -148,6 +185,17 @@
         offlineMode: offlineMode,
         speechSettings: speechSettings
       });
+      
+      // Update Whisper parameters including VAD settings
+      await invoke('update_whisper_params', {
+        temperature: null, // Keep existing
+        vadEnabled: vadEnabled,
+        vadThreshold: vadThreshold,
+        beamSize: null, // Keep existing
+        initialPrompt: null, // Keep existing
+        minSpeechDurationMs: minSpeechDuration,
+        maxSilenceDurationMs: maxSilenceDuration
+      });
 
       saveMessage = 'Settings saved successfully!';
       saveMessageType = 'success';
@@ -159,6 +207,10 @@
       initialSelectedLanguage = selectedLanguage;
       initialAutoPunctuate = autoPunctuate;
       initialTranslateToEnglish = translateToEnglish;
+      initialVadEnabled = vadEnabled;
+      initialVadThreshold = vadThreshold;
+      initialMinSpeechDuration = minSpeechDuration;
+      initialMaxSilenceDuration = maxSilenceDuration;
 
     } catch (error) {
       console.error("Failed to save settings:", error);
@@ -196,6 +248,30 @@
       on:click={() => activeTab = 'advanced'}
     >
       Advanced
+    </button>
+    <button 
+      class:active={activeTab === 'text-injection'} 
+      on:click={() => activeTab = 'text-injection'}
+    >
+      Text Injection
+    </button>
+    <button 
+      class:active={activeTab === 'gpu'} 
+      on:click={() => activeTab = 'gpu'}
+    >
+      GPU
+    </button>
+    <button 
+      class:active={activeTab === 'ai'} 
+      on:click={() => activeTab = 'ai'}
+    >
+      AI
+    </button>
+    <button 
+      class:active={activeTab === 'voice'} 
+      on:click={() => activeTab = 'voice'}
+    >
+      Voice
     </button>
   </div>
   
@@ -272,6 +348,71 @@
             Translate to English
           </label>
         </div>
+        
+        <h3 style="margin-top: 30px; margin-bottom: 15px;">Voice Activity Detection (VAD)</h3>
+        
+        <div class="setting-item">
+          <label>
+            <input type="checkbox" bind:checked={vadEnabled} />
+            Enable Voice Activity Detection
+          </label>
+          <p class="description">
+            Automatically detect when you're speaking and skip silence for faster processing.
+          </p>
+        </div>
+        
+        {#if vadEnabled}
+          <div class="setting-item">
+            <label for="vad-threshold">Detection Sensitivity</label>
+            <div class="slider-container">
+              <input 
+                type="range" 
+                id="vad-threshold" 
+                bind:value={vadThreshold} 
+                min="0" 
+                max="1" 
+                step="0.05"
+                class="slider"
+              />
+              <span class="slider-value">{vadThreshold.toFixed(2)}</span>
+            </div>
+            <p class="description">
+              Lower values = more sensitive (detects quieter speech). Default: 0.5
+            </p>
+          </div>
+          
+          <div class="setting-item">
+            <label for="min-speech-duration">Minimum Speech Duration (ms)</label>
+            <input 
+              type="number" 
+              id="min-speech-duration" 
+              bind:value={minSpeechDuration} 
+              min="100" 
+              max="1000" 
+              step="50"
+              class="number-input"
+            />
+            <p class="description">
+              Minimum duration of speech before processing. Helps filter out brief noises.
+            </p>
+          </div>
+          
+          <div class="setting-item">
+            <label for="max-silence-duration">Maximum Silence Duration (ms)</label>
+            <input 
+              type="number" 
+              id="max-silence-duration" 
+              bind:value={maxSilenceDuration} 
+              min="500" 
+              max="5000" 
+              step="100"
+              class="number-input"
+            />
+            <p class="description">
+              How long to wait during silence before ending a speech segment.
+            </p>
+          </div>
+        {/if}
       </section>
     {/if}
     
@@ -284,6 +425,42 @@
         <div class="placeholder">
           <p>Advanced settings will be available in a future update.</p>
         </div>
+      </section>
+    {/if}
+    
+    <!-- Text Injection Settings -->
+    {#if activeTab === 'text-injection'}
+      <section>
+        <h2>Text Injection</h2>
+        <p>Configure how transcribed text is injected into other applications.</p>
+        <TextInjectionSettings />
+      </section>
+    {/if}
+    
+    <!-- GPU Settings -->
+    {#if activeTab === 'gpu'}
+      <section>
+        <h2>GPU Acceleration</h2>
+        <p>View GPU information and acceleration status for Whisper transcription.</p>
+        <GpuSettings />
+      </section>
+    {/if}
+    
+    <!-- AI Settings -->
+    {#if activeTab === 'ai'}
+      <section>
+        <h2>AI Enhancement</h2>
+        <p>Configure AI providers for text enhancement and grammar correction.</p>
+        <AISettings />
+      </section>
+    {/if}
+    
+    <!-- Voice Commands Settings -->
+    {#if activeTab === 'voice'}
+      <section>
+        <h2>Voice Commands</h2>
+        <p>Configure AI-powered voice commands for natural language control.</p>
+        <AIVoiceCommands />
       </section>
     {/if}
   </div>
@@ -428,6 +605,75 @@
     cursor: not-allowed;
   }
   
+  /* Slider styles */
+  .slider-container {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+  }
+  
+  .slider {
+    flex: 1;
+    height: 5px;
+    background: #ddd;
+    outline: none;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+    cursor: pointer;
+  }
+  
+  .slider:hover {
+    opacity: 1;
+  }
+  
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: #4a7dff;
+    cursor: pointer;
+    border-radius: 50%;
+  }
+  
+  .slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: #4a7dff;
+    cursor: pointer;
+    border-radius: 50%;
+    border: none;
+  }
+  
+  .slider-value {
+    min-width: 50px;
+    text-align: center;
+    font-weight: 500;
+    color: #4a7dff;
+  }
+  
+  /* Number input styles */
+  .number-input {
+    width: 150px;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 16px;
+    background-color: var(--input-bg, white);
+    color: var(--input-text, #333);
+  }
+  
+  .number-input:focus {
+    outline: none;
+    border-color: #4a7dff;
+  }
+  
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+  }
+  
   /* Support dark mode */
   @media (prefers-color-scheme: dark) {
     main {
@@ -473,6 +719,22 @@
     .save-button:disabled {
       background-color: #4a7dff; /* Keep same blue but change opacity */
       opacity: 0.5;
+    }
+    
+    h3 {
+      color: #eee;
+    }
+    
+    .slider {
+      background: #555;
+    }
+    
+    .number-input {
+      border-color: #555;
+    }
+    
+    .number-input:focus {
+      border-color: #4a7dff;
     }
   }
 </style> 

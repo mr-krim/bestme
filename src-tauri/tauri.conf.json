@@ -2,10 +2,10 @@
   "$schema": "https://cdn.jsdelivr.net/gh/tauri-apps/tauri@55d373/core/tauri-config-schema/schema.json",
   "identifier": "com.bestme.app",
   "build": {
-    "beforeBuildCommand": "",
-    "beforeDevCommand": "",
-    "devUrl": "http://localhost:3000",
-    "frontendDist": "../assets"
+    "beforeBuildCommand": "cd ../ui && npm run build",
+    "beforeDevCommand": "cd ../ui && npm run dev",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../ui/dist"
   },
   "app": {
     "security": {
@@ -28,7 +28,31 @@
     "category": "Productivity",
     "shortDescription": "Speech-to-text application with AI voice commands",
     "longDescription": "BestMe is a modern speech-to-text application powered by AI.",
-    "copyright": "© 2025 BestMe Team"
+    "copyright": "© 2025 BestMe Team",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "headerImage": null,
+        "sidebarImage": null,
+        "installerIcon": null,
+        "installMode": "perMachine"
+      }
+    },
+    "resources": [
+      "../config/config.json"
+    ]
   },
   "plugins": {
     "clipboard": {

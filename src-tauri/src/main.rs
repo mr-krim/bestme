@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 // Tauri 2.0 imports
-use tauri::Manager;
+use tauri::{Manager, Listener};
 use tauri::AppHandle;
 use serde_json::Value as JsonValue;
 
@@ -25,7 +25,28 @@ use plugin::{
     AudioState, 
     TranscribePlugin, 
     TranscribeState,
-    voice_commands::{VoiceCommandPlugin, VoiceCommandState}
+    voice_commands::{VoiceCommandPlugin, VoiceCommandState,
+        get_voice_commands_status, get_voice_commands_text, get_voice_commands_history,
+        update_text, apply_delete_operation, undo_operation, redo_operation,
+        get_ai_voice_settings, save_ai_voice_settings, process_ai_voice_command
+    },
+    storage::{StoragePlugin, 
+        list_saved_transcripts_db, get_saved_transcript_db, save_transcript_db, 
+        delete_saved_transcript_db, search_transcripts_db, export_transcripts_db
+    },
+    text_injection::{TextInjectionPlugin,
+        enable_text_injection, inject_text, get_active_window,
+        check_injection_permissions, request_injection_permissions,
+        update_injection_config, set_injection_mode
+    },
+    audio::{start_recording, stop_recording, get_level, is_recording},
+    transcribe::{
+        start_transcription, stop_transcription, get_transcription, is_transcribing,
+        clear_transcription, get_download_progress, download_model_command, is_model_downloaded,
+        is_voice_commands_enabled, set_voice_commands_enabled, update_whisper_params,
+        get_whisper_params, add_vocabulary_entry, remove_vocabulary_entry, search_vocabulary,
+        get_vocabulary_entries, import_vocabulary_csv, export_vocabulary_csv
+    }
 };
 
 use plugin::transcribe::SUPPORTED_LANGUAGES;
@@ -45,12 +66,12 @@ use serde_json::json; // For creating JSON values manually if needed
 
 // Extension trait for DeviceManager to implement list_devices
 trait DeviceManagerExt {
-    fn list_devices(&self) -> Result<Vec<cpal::Device>, String>;
+    fn list_devices(&self) -> Result<Vec<(String, String)>, String>;
 }
 
 impl DeviceManagerExt for DeviceManager {
-    fn list_devices(&self) -> Result<Vec<cpal::Device>, String> {
-        self.get_input_devices().map_err(|e| e.to_string())
+    fn list_devices(&self) -> Result<Vec<(String, String)>, String> {
+        Ok(self.get_input_devices())
     }
 }
 
@@ -63,9 +84,7 @@ async fn get_audio_devices(
     let devices = device_manager.lock().list_devices()
         .map_err(|e| e.to_string())?;
     
-    Ok(devices.into_iter()
-        .map(|d| (d.id().to_string(), d.name().to_string()))
-        .collect())
+    Ok(devices)
 }
 
 #[tauri::command]
@@ -253,12 +272,15 @@ async fn toggle_voice_commands(
     enabled: bool,
     state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
 ) -> Result<(), String> {
-    let mut state = state.inner().lock();
-    
+    // Don't hold the lock across await
     if enabled {
-        state.enable().await
+        let mut state_lock = state.inner().lock();
+        // Call the synchronous start method instead
+        state_lock.start().map_err(|e| e.to_string())
     } else {
-        state.disable().await
+        let mut state_lock = state.inner().lock();
+        // Call the synchronous stop method instead
+        state_lock.stop().map_err(|e| e.to_string())
     }
 }
 
@@ -282,40 +304,58 @@ async fn save_voice_command_settings(
     config_manager: tauri::State<'_, Arc<Mutex<ConfigManager>>>,
     voice_command_state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
 ) -> Result<(), String> {
-    let mut config_manager = config_manager.inner().lock();
-    
-    // Create the voice command config using the local type
-    let mut voice_command_config = config_manager.get_config_mut().audio.voice_commands.clone();
-    voice_command_config.enabled = enabled;
-    
-    if let Some(prefix) = command_prefix {
-        voice_command_config.command_prefix = Some(prefix);
-    }
-    
-    voice_command_config.require_prefix = require_prefix;
-    voice_command_config.sensitivity = sensitivity;
-    
-    // Save the config to ConfigManager
-    config_manager.get_config_mut().audio.voice_commands = voice_command_config.clone();
-    
-    // Save the updated config
-    if let Err(e) = config_manager.save() {
-        return Err(format!("Failed to save voice command settings: {}", e));
-    }
+    // Update and save configuration
+    let voice_command_config = {
+        let mut config_manager = config_manager.inner().lock();
+        
+        // Create the voice command config using the local type
+        let mut voice_command_config = config_manager.get_config_mut().audio.voice_commands.clone();
+        voice_command_config.enabled = enabled;
+        
+        if let Some(prefix) = command_prefix {
+            voice_command_config.command_prefix = Some(prefix);
+        }
+        
+        voice_command_config.require_prefix = require_prefix;
+        voice_command_config.sensitivity = sensitivity;
+        
+        // Save the config to ConfigManager
+        config_manager.get_config_mut().audio.voice_commands = voice_command_config.clone();
+        
+        // Save the updated config
+        if let Err(e) = config_manager.save() {
+            return Err(format!("Failed to save voice command settings: {}", e));
+        }
+        
+        voice_command_config
+    };
     
     // Update the voice command state
-    let mut voice_command_state = voice_command_state.inner().lock();
-    if let Err(e) = voice_command_state.initialize(voice_command_config) {
-        return Err(format!("Failed to update voice command system: {}", e));
+    {
+        let mut voice_command_state = voice_command_state.inner().lock();
+        // Convert from library VoiceCommandConfig to TauriVoiceCommandConfig
+        let tauri_config = plugin::voice_commands::TauriVoiceCommandConfig {
+            enabled: voice_command_config.enabled,
+            command_prefix: voice_command_config.command_prefix.clone(),
+            require_prefix: voice_command_config.require_prefix,
+            sensitivity: voice_command_config.sensitivity,
+            custom_commands: Vec::new(), // TODO: Convert custom commands
+            default_commands: true,
+        };
+        if let Err(e) = voice_command_state.initialize(tauri_config) {
+            return Err(format!("Failed to update voice command system: {}", e));
+        }
     }
     
-    // Start voice commands if enabled
+    // Start voice commands if enabled (must be outside the lock)
     if enabled {
-        if let Err(e) = voice_command_state.enable().await {
+        let mut voice_command_state = voice_command_state.inner().lock();
+        if let Err(e) = voice_command_state.start() {
             return Err(format!("Failed to enable voice commands: {}", e));
         }
     } else {
-        if let Err(e) = voice_command_state.disable().await {
+        let mut voice_command_state = voice_command_state.inner().lock();
+        if let Err(e) = voice_command_state.stop() {
             return Err(format!("Failed to disable voice commands: {}", e));
         }
     }
@@ -385,7 +425,7 @@ struct OpenAiChatCompletionResponse {
 
 #[derive(Deserialize, Debug)]
 struct OpenAiChatCompletionChoice {
-    message: OpenAiChatCompletionChoice,
+    message: OpenAiChatMessageResponse,
     // Add other fields if needed (e.g., finish_reason)
 }
 
@@ -401,8 +441,9 @@ async fn list_saved_transcripts(
 ) -> Result<Vec<SavedTranscriptListItem>, String> {
     info!("Listing saved transcripts");
 
-    let data_dir = app_handle.path_resolver().app_data_dir()
-        .ok_or_else(|| "Could not determine app data directory".to_string())?;
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
     let transcripts_dir = data_dir.join("saved_transcripts");
 
     // Ensure the directory exists
@@ -478,8 +519,9 @@ async fn save_transcript(
     let id = Uuid::new_v4().to_string();
     let timestamp_ms = Utc::now().timestamp_millis();
 
-    let data_dir = app_handle.path_resolver().app_data_dir()
-        .ok_or_else(|| "Could not determine app data directory".to_string())?;
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
     let transcripts_dir = data_dir.join("saved_transcripts");
 
     // Ensure the directory exists
@@ -512,8 +554,9 @@ async fn save_transcript(
 async fn get_saved_transcript(id: String, app_handle: AppHandle) -> Result<SavedTranscriptFileContent, String> {
     info!("Getting saved transcript: {}", id);
 
-    let data_dir = app_handle.path_resolver().app_data_dir()
-        .ok_or_else(|| "Could not determine app data directory".to_string())?;
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
     let transcripts_dir = data_dir.join("saved_transcripts");
     let file_path = transcripts_dir.join(format!("{}.json", id));
 
@@ -536,8 +579,9 @@ async fn get_saved_transcript(id: String, app_handle: AppHandle) -> Result<Saved
 async fn delete_saved_transcript(id: String, app_handle: AppHandle) -> Result<(), String> {
     info!("Deleting saved transcript: {}", id);
 
-    let data_dir = app_handle.path_resolver().app_data_dir()
-        .ok_or_else(|| "Could not determine app data directory".to_string())?;
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
     let transcripts_dir = data_dir.join("saved_transcripts");
     let file_path = transcripts_dir.join(format!("{}.json", id));
 
@@ -559,8 +603,9 @@ async fn delete_saved_transcript(id: String, app_handle: AppHandle) -> Result<()
 async fn list_chat_sessions(app_handle: AppHandle) -> Result<Vec<ChatSessionListItem>, String> {
     info!("Listing chat sessions");
 
-    let data_dir = app_handle.path_resolver().app_data_dir()
-        .ok_or_else(|| "Could not determine app data directory".to_string())?;
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
     let sessions_dir = data_dir.join("chat_sessions");
 
     // Ensure the directory exists
@@ -623,8 +668,9 @@ async fn list_chat_sessions(app_handle: AppHandle) -> Result<Vec<ChatSessionList
 async fn get_chat_session(id: String, app_handle: AppHandle) -> Result<ChatSessionFileContent, String> {
     info!("Getting chat session: {}", id);
 
-    let data_dir = app_handle.path_resolver().app_data_dir()
-        .ok_or_else(|| "Could not determine app data directory".to_string())?;
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
     let sessions_dir = data_dir.join("chat_sessions");
     let file_path = sessions_dir.join(format!("{}.json", id));
 
@@ -652,8 +698,9 @@ async fn send_chat_message(
 ) -> Result<(String, ChatMessage), String> { // Returns our internal ChatMessage type
     info!("Sending chat message. Session: {:?}, Message: {}", session_id, user_message);
 
-    let data_dir = app_handle.path_resolver().app_data_dir()
-        .ok_or_else(|| "Could not determine app data directory".to_string())?;
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
     let sessions_dir = data_dir.join("chat_sessions");
     fs::create_dir_all(&sessions_dir)
         .map_err(|e| format!("Failed to create chat sessions directory: {}", e))?;
@@ -799,8 +846,9 @@ async fn send_chat_message(
 async fn delete_chat_session(id: String, app_handle: AppHandle) -> Result<(), String> {
     info!("Deleting chat session: {}", id);
 
-    let data_dir = app_handle.path_resolver().app_data_dir()
-        .ok_or_else(|| "Could not determine app data directory".to_string())?;
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
     let sessions_dir = data_dir.join("chat_sessions");
     let file_path = sessions_dir.join(format!("{}.json", id));
 
@@ -932,7 +980,7 @@ fn main() {
             eprintln!("Failed to initialize config manager: {}. Using default config.", e);
             // Consider creating a default config file here if it doesn't exist
             // Or proceed with a default in-memory config
-            Arc::new(Mutex::new(ConfigManager::default())) // Assuming a default impl exists
+            Arc::new(Mutex::new(ConfigManager::new().expect("Failed to create ConfigManager")))
         }
     };
     let device_manager = match DeviceManager::new() {
@@ -940,7 +988,7 @@ fn main() {
         Err(e) => {
             eprintln!("Failed to initialize device manager: {}", e);
             // Handle error gracefully, maybe disable audio features
-            Arc::new(Mutex::new(DeviceManager::default())) // Assuming a default impl
+            Arc::new(Mutex::new(DeviceManager::new().expect("Failed to create DeviceManager")))
         }
     };
     
@@ -968,16 +1016,19 @@ fn main() {
         let mut voice_commands = voice_command_state.lock();
         
         // Initialize voice command manager with config
-        match config_manager.lock().get_config() {
-            Ok(config) => {
-                 let voice_command_config = config.audio.voice_commands.clone();
-                 if let Err(e) = voice_commands.initialize(voice_command_config) {
-                    error!("Failed to initialize voice command system: {}", e);
-                 }
-            }
-            Err(e) => {
-                error!("Failed to get config for voice command initialization: {}", e);
-            }
+        let config = config_manager.lock().get_config().clone();
+        // Convert from library VoiceCommandConfig to TauriVoiceCommandConfig
+        let lib_config = &config.audio.voice_commands;
+        let tauri_config = plugin::voice_commands::TauriVoiceCommandConfig {
+            enabled: lib_config.enabled,
+            command_prefix: lib_config.command_prefix.clone(),
+            require_prefix: lib_config.require_prefix,
+            sensitivity: lib_config.sensitivity,
+            custom_commands: Vec::new(), // TODO: Convert VoiceCommandType to String
+            default_commands: true,
+        };
+        if let Err(e) = voice_commands.initialize(tauri_config) {
+            error!("Failed to initialize voice command system: {}", e);
         }
        
     }
@@ -1003,6 +1054,8 @@ fn main() {
         .plugin(AudioPlugin::new())
         .plugin(TranscribePlugin::new())
         .plugin(VoiceCommandPlugin::new())
+        .plugin(StoragePlugin::new())
+        .plugin(TextInjectionPlugin::new())
         .invoke_handler(tauri::generate_handler![
             get_audio_devices,
             get_whisper_models,
@@ -1027,7 +1080,57 @@ fn main() {
             send_chat_message,
             delete_chat_session,
             save_whisper_settings,
-            save_ai_settings
+            save_ai_settings,
+            // Audio plugin commands
+            start_recording,
+            stop_recording,
+            get_level,
+            is_recording,
+            // Transcribe plugin commands
+            start_transcription,
+            stop_transcription,
+            get_transcription,
+            is_transcribing,
+            clear_transcription,
+            get_download_progress,
+            download_model_command,
+            is_model_downloaded,
+            is_voice_commands_enabled,
+            set_voice_commands_enabled,
+            update_whisper_params,
+            get_whisper_params,
+            add_vocabulary_entry,
+            remove_vocabulary_entry,
+            search_vocabulary,
+            get_vocabulary_entries,
+            import_vocabulary_csv,
+            export_vocabulary_csv,
+            // Voice commands plugin commands
+            get_voice_commands_status,
+            get_voice_commands_text,
+            get_voice_commands_history,
+            update_text,
+            apply_delete_operation,
+            undo_operation,
+            redo_operation,
+            get_ai_voice_settings,
+            save_ai_voice_settings,
+            process_ai_voice_command,
+            // Storage plugin commands
+            list_saved_transcripts_db,
+            get_saved_transcript_db,
+            save_transcript_db,
+            delete_saved_transcript_db,
+            search_transcripts_db,
+            export_transcripts_db,
+            // Text injection plugin commands
+            enable_text_injection,
+            inject_text,
+            get_active_window,
+            check_injection_permissions,
+            request_injection_permissions,
+            update_injection_config,
+            set_injection_mode
         ])
         .setup(|app| {
             info!("Setting up Tauri 2.0 application");
@@ -1042,9 +1145,9 @@ fn main() {
             // Setup integration between transcription and voice commands
             {
                 let app_handle_clone = app.app_handle();
-                app_handle_clone.listen_global("transcription:update", move |event| {
-                    if let Some(payload) = event.payload() {
-                        if let Ok(text) = serde_json::from_str::<String>(payload) {
+                app_handle_clone.listen("transcription:update", move |event| {
+                    let payload = event.payload();
+                    if let Ok(text) = serde_json::from_str::<String>(payload) {
                             debug!("Processing transcription for voice commands: '{}'", text);
                             
                             // Process transcription for voice commands
@@ -1062,23 +1165,22 @@ fn main() {
                                     error!("Failed to process transcription for voice commands: {}", e);
                                 }
                             }
-                        } else {
-                            warn!("Failed to parse transcription payload: {}", payload);
-                        }
                     } else {
-                        warn!("Received transcription update event with no payload");
+                        warn!("Failed to parse transcription payload: {}", payload);
                     }
                 });
             }
             
             // Get the main window to set event listener
             if let Some(window) = app.get_webview_window("main") {
+                // Clone window for use in closure
+                let window_clone = window.clone();
                 // Setup window events
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         info!("Window close requested");
                         // Hide the window instead of closing it
-                        window.hide().unwrap();
+                        window_clone.hide().unwrap();
                         api.prevent_close();
                     }
                 });
@@ -1097,27 +1199,26 @@ fn main() {
 
             // Start voice commands if enabled (moved from plugin initialize to ensure state is ready)
              let config_state = app.state::<Arc<Mutex<ConfigManager>>>();
-            let initial_config_result = config_state.lock().get_config();
+            let initial_config = config_state.lock().get_config().clone();
             
-            if let Ok(initial_config) = initial_config_result {
+            {
                  if initial_config.audio.voice_commands.enabled {
-                     info!("Auto-starting voice commands as per config...");
-                     // Use the already managed voice_state_managed
-                     let voice_state_clone = Arc::clone(&voice_state_managed);
-                     tokio::spawn(async move {
-                          // We need to lock the state inside the async block
-                          let mut voice_state_lock = voice_state_clone.lock();
-                          if let Err(e) = voice_state_lock.enable().await {
-                                error!("Failed to auto-start voice commands: {}", e);
-                          } else {
-                                info!("Voice commands started successfully via config.");
-                          }
-                     });
+                     info!("Voice commands auto-start temporarily disabled to fix runtime issue");
+                     // TODO: Fix the voice command initialization in async context
+                     // // Use the already managed voice_state_managed
+                     // let voice_state_clone = Arc::clone(&voice_state_managed);
+                     // tokio::spawn(async move {
+                     //      // We need to lock the state inside the async block
+                     //      let mut voice_state_lock = voice_state_clone.lock();
+                     //      if let Err(e) = voice_state_lock.start() {
+                     //            error!("Failed to auto-start voice commands: {}", e);
+                     //      } else {
+                     //            info!("Voice commands started successfully via config.");
+                     //      }
+                     // });
                  } else {
                      info!("Voice commands disabled in initial config.");
                  }
-            } else {
-                error!("Could not read config to check for voice command auto-start.");
             }
             
             // Initialize system monitor
@@ -1126,7 +1227,7 @@ fn main() {
 
             // Start recording automatically if configured
             let should_auto_start = {
-                let config = config_state.lock().get_config()?;
+                let config = config_state.lock().get_config().clone();
                  config.general.auto_transcribe
             };
 

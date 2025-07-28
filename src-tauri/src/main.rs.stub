@@ -1,0 +1,265 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use parking_lot::Mutex;
+use tauri::{State, Manager};
+
+// Audio state for managing recording
+#[derive(Default)]
+struct AudioState {
+    is_recording: Arc<Mutex<bool>>,
+}
+
+fn main() {
+    // Initialize logger
+    env_logger::init();
+    
+    tauri::Builder::default()
+        .setup(|app| {
+            println!("BestMe is starting up...");
+            
+            // Initialize audio state
+            app.manage(AudioState::default());
+            
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_app_version,
+            get_config,
+            save_config,
+            get_cpu_usage,
+            get_memory_usage,
+            get_online_status,
+            list_audio_devices,
+            start_recording,
+            stop_recording,
+            start_transcription,
+            stop_transcription,
+            get_transcription_status,
+            save_transcription,
+            get_saved_transcriptions,
+            // Namespaced commands for UI
+            audio_start_recording,
+            audio_stop_recording,
+            transcribe_set_voice_commands_enabled,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+// Basic config structure for UI
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Config {
+    general: GeneralSettings,
+    audio: AudioSettings,
+    speech: SpeechSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GeneralSettings {
+    theme: String,
+    auto_start: bool,
+    show_in_system_tray: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AudioSettings {
+    device_name: Option<String>,
+    sample_rate: u32,
+    channels: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpeechSettings {
+    language: String,
+    model_size: String,
+    translate_to_english: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            general: GeneralSettings {
+                theme: "dark".to_string(),
+                auto_start: false,
+                show_in_system_tray: true,
+            },
+            audio: AudioSettings {
+                device_name: None,
+                sample_rate: 16000,
+                channels: 1,
+            },
+            speech: SpeechSettings {
+                language: "auto".to_string(),
+                model_size: "base".to_string(),
+                translate_to_english: false,
+            },
+        }
+    }
+}
+
+#[tauri::command]
+fn get_config() -> Config {
+    Config::default()
+}
+
+#[tauri::command]
+fn save_config(_config: Config) -> Result<(), String> {
+    // Just return success for now
+    Ok(())
+}
+
+// System monitoring stubs
+#[tauri::command]
+fn get_cpu_usage() -> f32 {
+    0.0
+}
+
+#[tauri::command]
+fn get_memory_usage() -> f32 {
+    0.0
+}
+
+#[tauri::command]
+fn get_online_status() -> bool {
+    true
+}
+
+// Audio device stub
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AudioDevice {
+    name: String,
+    is_default: bool,
+}
+
+#[tauri::command]
+fn list_audio_devices() -> Vec<AudioDevice> {
+    vec![
+        AudioDevice {
+            name: "Default Microphone".to_string(),
+            is_default: true,
+        }
+    ]
+}
+
+// Recording stubs
+#[tauri::command]
+fn start_recording() -> Result<(), String> {
+    println!("Start recording requested");
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_recording() -> Result<(), String> {
+    println!("Stop recording requested");
+    Ok(())
+}
+
+// Transcription commands
+#[tauri::command]
+fn start_transcription() -> Result<(), String> {
+    println!("Start transcription requested");
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_transcription() -> Result<(), String> {
+    println!("Stop transcription requested");
+    Ok(())
+}
+
+#[tauri::command]
+fn get_transcription_status() -> Result<TranscriptionStatus, String> {
+    Ok(TranscriptionStatus {
+        is_running: false,
+        current_text: "".to_string(),
+        device_name: "Default Microphone".to_string(),
+    })
+}
+
+#[derive(Serialize)]
+struct TranscriptionStatus {
+    is_running: bool,
+    current_text: String,
+    device_name: String,
+}
+
+// Storage commands
+#[tauri::command]
+fn save_transcription(text: String, metadata: serde_json::Value) -> Result<String, String> {
+    println!("Save transcription requested: {} chars", text.len());
+    // Return a mock ID
+    Ok("mock-transcription-id-123".to_string())
+}
+
+#[tauri::command]
+fn get_saved_transcriptions() -> Result<Vec<SavedTranscription>, String> {
+    // Return mock data
+    Ok(vec![
+        SavedTranscription {
+            id: "1".to_string(),
+            text: "This is a test transcription".to_string(),
+            timestamp: 1234567890,
+            duration: 30,
+            device: "Default Microphone".to_string(),
+        }
+    ])
+}
+
+#[derive(Serialize)]
+struct SavedTranscription {
+    id: String,
+    text: String,
+    timestamp: i64,
+    duration: i64,
+    device: String,
+}
+
+// Namespaced audio commands for UI compatibility
+#[tauri::command(rename_all = "snake_case")]
+async fn audio_start_recording(
+    device_name: Option<String>,
+    sample_rate: Option<u32>,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    println!("Audio start recording requested - device: {:?}, sample_rate: {:?}", device_name, sample_rate);
+    
+    let mut is_recording = state.is_recording.lock();
+    if *is_recording {
+        return Err("Already recording".to_string());
+    }
+    
+    *is_recording = true;
+    println!("Recording started");
+    
+    Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn audio_stop_recording(
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    println!("Audio stop recording requested");
+    
+    let mut is_recording = state.is_recording.lock();
+    if !*is_recording {
+        return Err("Not recording".to_string());
+    }
+    
+    *is_recording = false;
+    println!("Recording stopped");
+    
+    Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn transcribe_set_voice_commands_enabled(enabled: bool) -> Result<(), String> {
+    println!("Voice commands enabled: {}", enabled);
+    Ok(())
+}

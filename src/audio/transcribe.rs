@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{info, warn};
+use log::{info, warn, debug};
 use std::path::PathBuf;
 use std::sync::Arc;
 use parking_lot::Mutex;
@@ -7,6 +7,10 @@ use tokio::sync::mpsc;
 use thiserror::Error;
 
 use crate::config::{SpeechSettings, WhisperModelSize};
+use crate::audio::voice_commands::{VoiceCommandProcessor, VoiceCommandEvent};
+
+#[cfg(feature = "storage")]
+use crate::storage::{StorageManager, Transcript};
 
 #[cfg(feature = "whisper")]
 use whisper_rs::{WhisperContext, FullParams, SamplingStrategy, WhisperContextParameters};
@@ -55,12 +59,19 @@ pub struct TranscriptionManager {
     /// Current transcription text
     current_text: Arc<Mutex<String>>,
     
+    /// Voice command processor
+    voice_command_processor: Option<Arc<Mutex<VoiceCommandProcessor>>>,
+    
     /// Audio buffer for accumulating audio before processing
     audio_buffer: Arc<Mutex<Vec<f32>>>,
     
     /// Whisper context (only with whisper feature)
     #[cfg(feature = "whisper")]
     whisper_context: Option<Arc<WhisperContext>>,
+    
+    /// Storage manager for saving transcripts
+    #[cfg(feature = "storage")]
+    storage_manager: Option<Arc<StorageManager>>,
 }
 
 /// Transcription state
@@ -93,6 +104,12 @@ pub enum TranscriptionEvent {
     /// Partial transcription available
     PartialTranscription(String),
     
+    /// Voice command detected and executed
+    CommandExecuted {
+        command: String,
+        result: Result<String, String>,
+    },
+    
     /// Transcription started
     Started,
     
@@ -121,9 +138,12 @@ impl TranscriptionManager {
             state: TranscriptionState::Uninitialized,
             event_sender,
             current_text: Arc::new(Mutex::new(String::new())),
+            voice_command_processor: None, // Will be initialized when enabled
             audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(AUDIO_BUFFER_SECONDS * SAMPLE_RATE))),
             #[cfg(feature = "whisper")]
             whisper_context: None,
+            #[cfg(feature = "storage")]
+            storage_manager: None,
         };
         
         Ok((manager, event_receiver))
@@ -161,11 +181,26 @@ impl TranscriptionManager {
                 warn!("Running in simulation mode without actual transcription");
             } else {
                 info!("Loading Whisper model from {:?}", model_file);
-                let builder = WhisperContextParameters::new();
-                let whisper = WhisperContext::new_with_params(&model_file.to_string_lossy(), builder)
+                
+                // Create context parameters with GPU support if available
+                let params = WhisperContextParameters::new();
+                
+                // Enable GPU if any GPU feature is enabled
+                #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+                {
+                    params.use_gpu(true);
+                    info!("GPU acceleration enabled for Whisper");
+                }
+                
+                let whisper = WhisperContext::new_with_params(&model_file.to_string_lossy(), params)
                     .map_err(|e| anyhow::anyhow!("Failed to load whisper model: {}", e))?;
                 self.whisper_context = Some(Arc::new(whisper));
-                info!("Whisper model loaded successfully");
+                
+                #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]
+                info!("Whisper model loaded successfully with GPU acceleration");
+                
+                #[cfg(not(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas")))]
+                info!("Whisper model loaded successfully (CPU mode)");
             }
         }
         
@@ -355,16 +390,28 @@ impl TranscriptionManager {
                         *current = text.clone();
                     }
                     
-                    // Handle post-processing
-                    if self.settings.save_transcription {
-                        if let Err(e) = self.save_transcription(&text).await {
-                            warn!("Failed to save transcription: {}", e);
+                    // Check for voice commands first
+                    if let Some((command, result)) = self.process_for_commands(&text).await {
+                        // Send command event
+                        if let Err(e) = self.event_sender.send(TranscriptionEvent::CommandExecuted {
+                            command,
+                            result,
+                        }).await {
+                            warn!("Failed to send command event: {}", e);
                         }
-                    }
-                    
-                    // Send transcription event
-                    if let Err(e) = self.event_sender.send(TranscriptionEvent::Transcription(text.clone())).await {
-                        warn!("Failed to send transcription event: {}", e);
+                    } else {
+                        // No command detected, send as regular transcription
+                        // Handle post-processing
+                        if self.settings.save_transcription {
+                            if let Err(e) = self.save_transcription(&text).await {
+                                warn!("Failed to save transcription: {}", e);
+                            }
+                        }
+                        
+                        // Send transcription event
+                        if let Err(e) = self.event_sender.send(TranscriptionEvent::Transcription(text.clone())).await {
+                            warn!("Failed to send transcription event: {}", e);
+                        }
                     }
                     
                     Ok(Some(text))
@@ -401,18 +448,57 @@ impl TranscriptionManager {
             *current = fake_text.clone();
         }
         
-        // Send the simulated text
-        if let Err(e) = self.event_sender.send(TranscriptionEvent::Transcription(fake_text.clone())).await {
-            warn!("Failed to send simulated transcription: {}", e);
+        // Check for voice commands in simulated text
+        if let Some((command, result)) = self.process_for_commands(&fake_text).await {
+            // Send command event
+            if let Err(e) = self.event_sender.send(TranscriptionEvent::CommandExecuted {
+                command,
+                result,
+            }).await {
+                warn!("Failed to send command event: {}", e);
+            }
+        } else {
+            // Send the simulated text
+            if let Err(e) = self.event_sender.send(TranscriptionEvent::Transcription(fake_text.clone())).await {
+                warn!("Failed to send simulated transcription: {}", e);
+            }
         }
         
         Ok(Some(fake_text))
     }
     
-    /// Save transcription to file
+    /// Save transcription to file and/or storage
     async fn save_transcription(&self, text: &str) -> Result<()> {
         if !self.settings.save_transcription {
             return Ok(());
+        }
+        
+        // Save to storage if available
+        #[cfg(feature = "storage")]
+        if let Some(storage) = &self.storage_manager {
+            // Create transcript
+            let mut transcript = Transcript::new(
+                storage.current_session_id().unwrap_or_default(),
+                text.to_string(),
+            );
+            
+            // Set metadata
+            transcript.language = Some(
+                if self.settings.language.is_empty() || self.settings.language == "auto" {
+                    "auto".to_string()
+                } else {
+                    self.settings.language.clone()
+                }
+            );
+            transcript.model_size = Some(self.get_model_size_string().to_string());
+            transcript.metadata.translated = self.settings.translate_to_english;
+            transcript.metadata.auto_punctuated = self.settings.auto_punctuate;
+            
+            // Save to storage
+            match storage.save_transcript(transcript).await {
+                Ok(id) => debug!("Saved transcript to storage: {}", id),
+                Err(e) => warn!("Failed to save transcript to storage: {}", e),
+            }
         }
         
         // Create transcription directory if it doesn't exist
@@ -489,5 +575,169 @@ impl TranscriptionManager {
     #[allow(dead_code)]
     fn get_model_size_name(&self) -> &'static str {
         self.get_model_size_string()
+    }
+    
+    /// Enable voice command processing
+    pub fn enable_voice_commands(&mut self, processor: Arc<Mutex<VoiceCommandProcessor>>) {
+        self.voice_command_processor = Some(processor);
+        info!("Voice command processing enabled");
+    }
+    
+    /// Disable voice command processing
+    pub fn disable_voice_commands(&mut self) {
+        self.voice_command_processor = None;
+        info!("Voice command processing disabled");
+    }
+    
+    /// Set storage manager for saving transcripts
+    #[cfg(feature = "storage")]
+    pub fn set_storage_manager(&mut self, storage_manager: Arc<StorageManager>) {
+        self.storage_manager = Some(storage_manager);
+        info!("Storage manager set for transcription saving");
+    }
+    
+    /// Process transcribed text for voice commands
+    async fn process_for_commands(&self, text: &str) -> Option<(String, Result<String, String>)> {
+        if let Some(processor) = &self.voice_command_processor {
+            let mut processor = processor.lock();
+            
+            // Check if the text contains a voice command
+            if let Some(event) = processor.process_text(text) {
+                match event {
+                    VoiceCommandEvent::CommandDetected(command) => {
+                        info!("Voice command detected: {:?}", command);
+                        
+                        // Execute the command and get the result
+                        let result = processor.execute_command(&command);
+                        
+                        // Return command info for event
+                        return Some((
+                            format!("{:?}", command.command_type),
+                            result
+                        ));
+                    }
+                    VoiceCommandEvent::Error(err) => {
+                        warn!("Voice command error: {}", err);
+                        return Some((
+                            "Error".to_string(),
+                            Err(err)
+                        ));
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::voice_commands::{VoiceCommandConfig, VoiceCommandManager};
+    
+    #[tokio::test]
+    async fn test_voice_command_integration() {
+        // Create a transcription manager
+        let speech_settings = SpeechSettings::default();
+        let (mut manager, mut receiver) = TranscriptionManager::new(speech_settings).unwrap();
+        
+        // Create and enable voice command processor
+        let voice_config = VoiceCommandConfig::default();
+        let (processor, _cmd_receiver) = VoiceCommandManager::new(voice_config).unwrap();
+        let processor = Arc::new(Mutex::new(processor));
+        manager.enable_voice_commands(processor);
+        
+        // Simulate transcription with a command
+        manager.process_for_commands("delete last word").await;
+        
+        // The actual processing happens in process_transcription_internal
+        // For now, just verify the setup works
+        assert!(manager.voice_command_processor.is_some());
+    }
+    
+    #[tokio::test]
+    async fn test_command_detection_in_transcription() {
+        let speech_settings = SpeechSettings::default();
+        let (mut manager, mut receiver) = TranscriptionManager::new(speech_settings).unwrap();
+        
+        // Enable voice commands
+        let voice_config = VoiceCommandConfig {
+            enabled: true,
+            sensitivity: 0.7,
+            ..Default::default()
+        };
+        let (processor, _cmd_receiver) = VoiceCommandManager::new(voice_config).unwrap();
+        let processor = Arc::new(Mutex::new(processor));
+        manager.enable_voice_commands(processor.clone());
+        
+        // Test command detection
+        let result = manager.process_for_commands("please delete the last word").await;
+        assert!(result.is_some());
+        
+        if let Some((command, result)) = result {
+            assert_eq!(command, "Delete");
+            assert!(result.is_ok());
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_regular_transcription_without_commands() {
+        let speech_settings = SpeechSettings::default();
+        let (mut manager, mut receiver) = TranscriptionManager::new(speech_settings).unwrap();
+        
+        // Enable voice commands
+        let voice_config = VoiceCommandConfig::default();
+        let (processor, _cmd_receiver) = VoiceCommandManager::new(voice_config).unwrap();
+        let processor = Arc::new(Mutex::new(processor));
+        manager.enable_voice_commands(processor);
+        
+        // Test text without commands
+        let result = manager.process_for_commands("This is just regular text").await;
+        assert!(result.is_none());
+    }
+    
+    #[tokio::test]
+    async fn test_disable_voice_commands() {
+        let speech_settings = SpeechSettings::default();
+        let (mut manager, _receiver) = TranscriptionManager::new(speech_settings).unwrap();
+        
+        // Enable then disable
+        let voice_config = VoiceCommandConfig::default();
+        let (processor, _cmd_receiver) = VoiceCommandManager::new(voice_config).unwrap();
+        let processor = Arc::new(Mutex::new(processor));
+        manager.enable_voice_commands(processor);
+        assert!(manager.voice_command_processor.is_some());
+        
+        manager.disable_voice_commands();
+        assert!(manager.voice_command_processor.is_none());
+        
+        // Commands should not be detected when disabled
+        let result = manager.process_for_commands("delete last word").await;
+        assert!(result.is_none());
+    }
+    
+    #[tokio::test]
+    async fn test_command_execution_result() {
+        let speech_settings = SpeechSettings::default();
+        let (mut manager, _receiver) = TranscriptionManager::new(speech_settings).unwrap();
+        
+        // Enable voice commands
+        let voice_config = VoiceCommandConfig::default();
+        let (processor, _cmd_receiver) = VoiceCommandManager::new(voice_config).unwrap();
+        let processor = Arc::new(Mutex::new(processor));
+        manager.enable_voice_commands(processor);
+        
+        // Test successful command execution
+        let result = manager.process_for_commands("delete").await;
+        assert!(result.is_some());
+        
+        if let Some((command, exec_result)) = result {
+            assert_eq!(command, "Delete");
+            assert!(exec_result.is_ok());
+        }
+        
+        // Test command with longer text
+        let result = manager.process_for_commands("can you please delete the last word").await;
+        assert!(result.is_some());
     }
 } 

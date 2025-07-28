@@ -1,6 +1,5 @@
 use anyhow::Result;
 use cpal::traits::{HostTrait, DeviceTrait, StreamTrait};
-use cpal::DeviceNameError;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use parking_lot::Mutex;
@@ -180,11 +179,11 @@ impl CaptureManager {
                 debug!("Attempting to find configured input device ID: {}", id_str);
                 host.input_devices()? // Get iterator of input devices
                     .find(|d| {
-                        // Compare device ID string
-                        match d.id() { // Use the new id() method
-                            Ok(dev_id) => dev_id.to_string() == *id_str,
+                        // Compare device name string
+                        match d.name() {
+                            Ok(dev_name) => dev_name == *id_str,
                             Err(e) => {
-                                warn!("Failed to get ID for a device: {}", e);
+                                warn!("Failed to get name for a device: {}", e);
                                 false
                             }
                         }
@@ -401,6 +400,19 @@ impl CaptureManager {
     pub fn is_active(&self) -> bool {
         self.is_recording
     }
+    
+    /// Set the audio device (placeholder for now)
+    pub fn set_device(&mut self, device: cpal::Device) {
+        // For now, just log that we received the device
+        // In a real implementation, this would stop the current stream
+        // and start a new one with the new device
+        if let Ok(name) = device.name() {
+            info!("Set device request received for: {}", name);
+        } else {
+            warn!("Set device request received for unnamed device");
+        }
+        // TODO: Implement actual device switching
+    }
 }
 
 // Command enum for communicating with the isolated CaptureManager thread
@@ -432,11 +444,11 @@ impl ThreadedCaptureManager {
         
         std::thread::spawn(move || {
             // Create the actual CaptureManager inside the thread
-            let (mut manager, _) = match CaptureManager::new(thread_config_manager) {
+            let mut manager = match CaptureManager::new(thread_config_manager) {
                 Ok((mut m, _)) => {
                     // Use the event sender created outside the thread
                     m.event_sender = event_sender_clone;
-                    (m, event_receiver) // Keep the original receiver logic if needed elsewhere
+                    m
                 },
                 Err(e) => {
                     error!("Failed to create CaptureManager in thread: {}", e);
@@ -463,7 +475,7 @@ impl ThreadedCaptureManager {
                             // Send error event?
                         }
                     }
-                    CaptureCommand::SetDevice(device) => {
+                    CaptureCommand::SetDevice(_device) => {
                         // This command might be less useful now, device is set on start based on config
                         warn!("SetDevice command received but may be ignored (device set via config on start).");
                         // manager.set_device(device); // Original logic if needed
@@ -535,7 +547,15 @@ impl CaptureManager {
         // Create the manager and spawn a thread to manage it
         std::thread::spawn(move || {
             // Create manager in this thread
-            match Self::new() {
+            // Create a config manager for testing
+            let config_manager = match ConfigManager::new() {
+                Ok(cm) => Arc::new(Mutex::new(cm)),
+                Err(e) => {
+                    error!("Failed to create config manager: {}", e);
+                    return;
+                }
+            };
+            match Self::new(config_manager) {
                 Ok((mut manager, _)) => {
                     // Main loop for processing commands
                     while let Some(cmd) = cmd_receiver.blocking_recv() {
@@ -579,7 +599,7 @@ impl CaptureManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, ConfigManager};
+    use crate::config::{ConfigManager};
     use cpal::traits::HostTrait;
     use std::sync::Arc;
     use parking_lot::Mutex;
@@ -592,7 +612,7 @@ mod tests {
         let config_path = temp_dir.path().join("test_config.json");
         
         // Create a default config instance
-        let mut config = Config::default();
+        let config = crate::config::Config::default();
         
         // Use a simplified ConfigManager creation for testing purposes
         // Avoids ProjectDirs issues in test environment
@@ -609,7 +629,7 @@ mod tests {
         let desired_none: Option<String> = None;
         let found_device_none = CaptureManager::find_input_device(&host, &desired_none);
         
-        if let Ok(default_device) = default_device_result.as_ref() {
+        if let Some(default_device) = default_device_result.as_ref() {
             assert!(found_device_none.is_ok());
             // Compare names as a basic check (IDs might be less stable)
              assert_eq!(found_device_none.unwrap().name().ok(), default_device.name().ok());
@@ -623,7 +643,7 @@ mod tests {
         let desired_invalid = Some("invalid-device-id-12345".to_string());
         let found_device_invalid = CaptureManager::find_input_device(&host, &desired_invalid);
 
-        if let Ok(default_device) = default_device_result.as_ref() {
+        if let Some(default_device) = default_device_result.as_ref() {
             assert!(found_device_invalid.is_ok());
             // Check it fell back to default
              assert_eq!(found_device_invalid.unwrap().name().ok(), default_device.name().ok());
@@ -633,9 +653,9 @@ mod tests {
         }
 
         // Test case 3: Specify the default device ID explicitly (should find it)
-        if let Ok(default_device) = default_device_result {
-            if let Ok(default_id) = default_device.id() { // Use id() method
-                 let desired_default_id = Some(default_id.to_string());
+        if let Some(default_device) = default_device_result {
+            if let Ok(default_name) = default_device.name() { // Use name() method
+                 let desired_default_id = Some(default_name);
                  let found_device_default = CaptureManager::find_input_device(&host, &desired_default_id);
                  assert!(found_device_default.is_ok());
                   assert_eq!(found_device_default.unwrap().name().ok(), default_device.name().ok());

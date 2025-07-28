@@ -3,6 +3,18 @@ pub mod app;
 pub mod audio;
 pub mod gui;
 
+#[cfg(any(feature = "ai-local", feature = "ai-cloud"))]
+pub mod ai;
+
+#[cfg(feature = "storage")]
+pub mod storage;
+
+#[cfg(feature = "text-injection")]
+pub mod text_injection;
+
+#[cfg(test)]
+mod tests;
+
 use anyhow::Result;
 use log::info;
 

@@ -7,6 +7,7 @@
   import TranscriptionView from '../views/TranscriptionView.svelte';
   import ChatView from '../views/ChatView.svelte'; // Import ChatView
   import SettingsView from '../views/SettingsView.svelte';
+  import VocabularyView from '../views/VocabularyView.svelte';
   // Comment out missing components
   // import VoiceCommandView from './VoiceCommandView.svelte'; 
   import SavedTranscriptView from '../views/SavedTranscriptView.svelte'; // Corrected path and uncommented
@@ -87,6 +88,8 @@
     />
   {:else if activePanel === 'settings'}
     <SettingsView />
+  {:else if activePanel === 'vocabulary'}
+    <VocabularyView />
   <!-- Comment out block for missing VoiceCommandView -->
   <!-- {:else if activePanel === 'voice-commands'}
     <VoiceCommandView />

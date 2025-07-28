@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use std::io::{self, Write};
 use std::sync::Arc;
-use parking_lot;
+use parking_lot::{self, Mutex};
 
 use crate::audio::{
     device::DeviceManager,
@@ -14,6 +14,9 @@ use crate::audio::{
 };
 use crate::config::{Config, ConfigManager};
 use crate::gui::Gui;
+
+#[cfg(feature = "storage")]
+use crate::storage::{StorageManager, DatabaseConfig};
 
 /// Main application struct
 pub struct App {
@@ -49,6 +52,10 @@ pub struct App {
     
     /// Whether to continue running the application
     running: bool,
+    
+    /// Storage manager
+    #[cfg(feature = "storage")]
+    storage_manager: Option<Arc<StorageManager>>,
 }
 
 impl App {
@@ -86,6 +93,8 @@ impl App {
             transcription_receiver: None,
             transcription_task: None,
             running: true,
+            #[cfg(feature = "storage")]
+            storage_manager: None,
         })
     }
     
@@ -157,6 +166,14 @@ impl App {
             .build()
             .context("Failed to create tokio runtime")?;
         
+        // Initialize storage if available
+        #[cfg(feature = "storage")]
+        {
+            rt.block_on(async {
+                self.initialize_storage().await
+            })?;
+        }
+        
         // Run the main menu loop
         rt.block_on(async {
             self.main_menu().await
@@ -222,7 +239,7 @@ impl App {
         
         // Create capture manager
         let _audio_config = self.config_manager.get_config().audio.clone();
-        let (capture_manager, receiver) = match CaptureManager::new() {
+        let (capture_manager, receiver) = match CaptureManager::new(Arc::new(Mutex::new(self.config_manager.clone()))) {
             Ok(result) => result,
             Err(e) => {
                 error!("Failed to create capture manager: {}", e);
@@ -237,11 +254,41 @@ impl App {
         // Initialize transcription if not initialized
         if self.transcription_manager.is_none() {
             let speech_settings = self.config_manager.get_config().audio.speech.clone();
-            let (transcription_manager, transcription_receiver) = TranscriptionManager::new(speech_settings)
+            let (mut transcription_manager, transcription_receiver) = TranscriptionManager::new(speech_settings)
                 .context("Failed to create transcription manager")?;
+            
+            // Enable voice commands if configured
+            if self.config_manager.get_config().audio.voice_commands.enabled {
+                let voice_config = self.config_manager.get_config().audio.voice_commands.clone();
+                match crate::audio::voice_commands::VoiceCommandProcessor::new(voice_config) {
+                    Ok((processor, _receiver)) => {
+                        let voice_processor = Arc::new(Mutex::new(processor));
+                        transcription_manager.enable_voice_commands(voice_processor);
+                        info!("Voice commands enabled for transcription");
+                    },
+                    Err(e) => {
+                        warn!("Failed to create voice command processor: {}", e);
+                    }
+                }
+            }
+            
+            // Set storage manager if available
+            #[cfg(feature = "storage")]
+            if let Some(storage_manager) = &self.storage_manager {
+                transcription_manager.set_storage_manager(Arc::clone(storage_manager));
+            }
             
             self.transcription_manager = Some(transcription_manager);
             self.transcription_receiver = Some(transcription_receiver);
+        }
+        
+        // Start storage session if available
+        #[cfg(feature = "storage")]
+        if let Some(storage_manager) = &self.storage_manager {
+            match storage_manager.start_session(device_id.map(String::from)).await {
+                Ok(session_id) => info!("Started storage session: {}", session_id),
+                Err(e) => warn!("Failed to start storage session: {}", e),
+            }
         }
         
         // Start audio capture
@@ -269,6 +316,19 @@ impl App {
                                 TranscriptionEvent::PartialTranscription(text) => {
                                     print!("\rPartial: {}", text);
                                     let _ = io::stdout().flush();
+                                },
+                                TranscriptionEvent::CommandExecuted { command, result } => {
+                                    match result {
+                                        Ok(output) => {
+                                            println!("\n✓ Command '{}' executed successfully", command);
+                                            if !output.is_empty() {
+                                                println!("  Result: {}", output);
+                                            }
+                                        },
+                                        Err(error) => {
+                                            println!("\n✗ Command '{}' failed: {}", command, error);
+                                        }
+                                    }
                                 },
                                 TranscriptionEvent::Started => {
                                     println!("Transcription started");
@@ -336,6 +396,14 @@ impl App {
         // Shutdown async tasks directly without creating a new runtime
         if let Err(e) = self.shutdown_async_tasks().await {
             error!("Error during async task shutdown: {}", e);
+        }
+        
+        // End storage session if available
+        #[cfg(feature = "storage")]
+        if let Some(storage_manager) = &self.storage_manager {
+            if let Err(e) = storage_manager.end_session().await {
+                warn!("Failed to end storage session: {}", e);
+            }
         }
     }
     
@@ -637,5 +705,32 @@ impl App {
     /// Force GUI mode
     pub fn set_gui_mode(&mut self, enabled: bool) {
         self.use_gui = enabled;
+    }
+    
+    /// Initialize storage system
+    #[cfg(feature = "storage")]
+    async fn initialize_storage(&mut self) -> Result<()> {
+        // Get storage directory
+        let project_dirs = directories::ProjectDirs::from("com", "bestme", "BestMe")
+            .context("Failed to determine project directories")?;
+        
+        let storage_path = project_dirs.data_dir().join("transcripts.db");
+        
+        let config = DatabaseConfig {
+            path: storage_path,
+            ..Default::default()
+        };
+        
+        match StorageManager::new(config).await {
+            Ok(manager) => {
+                self.storage_manager = Some(Arc::new(manager));
+                info!("Storage system initialized");
+            }
+            Err(e) => {
+                warn!("Failed to initialize storage: {}. Transcripts will not be saved to database.", e);
+            }
+        }
+        
+        Ok(())
     }
 } 

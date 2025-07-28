@@ -113,7 +113,7 @@
             command = 'get_recent_transcription_list'; // Placeholder
             break;
           case 'saved-transcripts':
-            command = 'get_saved_transcript_list'; // Placeholder
+            command = 'list_saved_transcripts'; // Corrected command name
             break;
           case 'chat':
             command = 'get_chat_session_list'; // Placeholder

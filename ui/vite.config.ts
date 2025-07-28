@@ -24,8 +24,8 @@ export default defineConfig(async () => ({
   clearScreen: false,
   // tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 3000,
-    strictPort: true,
+    port: 5173,
+    strictPort: false,
   },
   // to make use of `TAURI_DEBUG` and other env variables
   // https://tauri.studio/v1/api/config#buildconfig.beforedevcommand
