@@ -335,9 +335,11 @@ impl AIVoiceCommandProcessor {
         // Use AI to understand the command
         let options = EnhancementOptions {
             correct_grammar: false,
+            improve_clarity: false,
             improve_punctuation: false,
             detect_intent: true,
             preserve_style: true,
+            format_markdown: false,
             confidence_threshold: self.config.confidence_threshold,
         };
         
@@ -581,9 +583,8 @@ mod tests {
     #[tokio::test]
     async fn test_interpret_delete_command() {
         let config = AIVoiceCommandConfig::default();
-        let base_processor = Arc::new(RwLock::new(
-            VoiceCommandManager::new(Default::default())
-        ));
+        let (manager, _receiver) = VoiceCommandManager::new(Default::default()).unwrap();
+        let base_processor = Arc::new(RwLock::new(manager));
         
         let processor = AIVoiceCommandProcessor::new(
             base_processor,
@@ -608,9 +609,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_suggestions() {
         let config = AIVoiceCommandConfig::default();
-        let base_processor = Arc::new(RwLock::new(
-            VoiceCommandManager::new(Default::default())
-        ));
+        let (manager, _receiver) = VoiceCommandManager::new(Default::default()).unwrap();
+        let base_processor = Arc::new(RwLock::new(manager));
         
         let processor = AIVoiceCommandProcessor::new(
             base_processor,

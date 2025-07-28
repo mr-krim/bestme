@@ -122,7 +122,9 @@ impl AIProvider for CloudAI {
         
         // Deanonymize if needed
         if let Some(deanonymizer) = deanonymizer {
-            enhanced = deanonymizer.restore(&enhanced)?;
+            enhanced.enhanced = deanonymizer.restore(&enhanced.enhanced)?;
+            // Also restore the original text if it was anonymized
+            enhanced.original = deanonymizer.restore(&enhanced.original)?;
         }
         
         Ok(enhanced)

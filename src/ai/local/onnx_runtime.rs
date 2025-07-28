@@ -4,8 +4,7 @@ use ort::{Environment, Session, SessionBuilder, Value};
 use tokenizers::Tokenizer;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use ndarray::{Array2, Array3};
+use ndarray::Array2;
 
 /// ONNX Runtime model implementation
 #[derive(Debug)]
@@ -203,17 +202,29 @@ impl OnnxRuntimeModel {
             attention_mask.iter().map(|&x| x as i64).collect(),
         ).map_err(|e| AIError::InferenceError(format!("Failed to create attention mask: {}", e)))?;
         
-        // Convert to ONNX values
-        let input_ids_value = Value::from_array(self.session.allocator(), &input_ids_array)
-            .map_err(|e| AIError::InferenceError(format!("Failed to create input tensor: {}", e)))?;
+        // Convert to ONNX values and run inference
+        use ndarray::CowArray;
         
-        let attention_mask_value = Value::from_array(self.session.allocator(), &attention_mask_array)
-            .map_err(|e| AIError::InferenceError(format!("Failed to create attention tensor: {}", e)))?;
+        // Convert arrays to dynamic dimension CowArrays
+        let input_ids_cow = CowArray::from(input_ids_array.into_dyn());
+        let attention_mask_cow = CowArray::from(attention_mask_array.into_dyn());
         
-        // Run inference
-        let outputs = self.session
-            .run(vec![input_ids_value, attention_mask_value])
-            .map_err(|e| AIError::InferenceError(format!("Inference failed: {}", e)))?;
+        // Create values and run inference in one expression to ensure lifetimes are correct
+        let outputs = {
+            let input_ids_value = Value::from_array(
+                self.session.allocator(),
+                &input_ids_cow
+            ).map_err(|e| AIError::InferenceError(format!("Failed to create input tensor: {}", e)))?;
+            
+            let attention_mask_value = Value::from_array(
+                self.session.allocator(),
+                &attention_mask_cow
+            ).map_err(|e| AIError::InferenceError(format!("Failed to create attention tensor: {}", e)))?;
+            
+            self.session
+                .run(vec![input_ids_value, attention_mask_value])
+                .map_err(|e| AIError::InferenceError(format!("Inference failed: {}", e)))?
+        };
         
         // Extract output token IDs
         if let Some(output) = outputs.get(0) {
@@ -308,6 +319,7 @@ impl OnnxRuntimeModel {
     }
 }
 
+#[async_trait::async_trait]
 impl AIModel for OnnxRuntimeModel {
     fn model_id(&self) -> &str {
         &self.model_id

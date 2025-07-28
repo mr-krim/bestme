@@ -8,14 +8,14 @@ use parking_lot::Mutex;
 
 use super::{TextInjector, InjectionMode, PermissionStatus, WindowInfo};
 use super::context::ContextDetector;
-use super::keycodes::{VirtualKey, GenericKeycodeMapper, KeyPress, KeycodeMapper};
+use super::keycodes::{VirtualKey, GenericKeycodeMapper, KeycodeMapper};
 
 #[cfg(target_os = "linux")]
 use {
     x11::xlib::*,
     x11::xtest::*,
     x11::keysym,
-    std::{ffi::CString, ptr, os::raw::c_char, thread, time::Duration},
+    std::{ptr, time::Duration},
 };
 
 /// Linux text injector using X11 or Wayland

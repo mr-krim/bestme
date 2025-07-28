@@ -201,7 +201,7 @@ impl OnnxValidator {
             
             // Get shape
             let shape: Vec<i64> = input.dimensions()
-                .map(|d| d.unwrap_or(-1))
+                .map(|d| d.map(|v| v as i64).unwrap_or(-1))
                 .collect();
             input_shapes.insert(name, shape);
         }
@@ -216,7 +216,7 @@ impl OnnxValidator {
             
             // Get shape
             let shape: Vec<i64> = output.dimensions()
-                .map(|d| d.unwrap_or(-1))
+                .map(|d| d.map(|v| v as i64).unwrap_or(-1))
                 .collect();
             output_shapes.insert(name, shape);
         }

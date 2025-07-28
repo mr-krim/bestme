@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 use crate::ai::services::text_analyzer::{TextCharacteristics, TextDomain};
 use crate::ai::models::ModelMetadata;
 
@@ -7,7 +8,7 @@ use crate::ai::models::ModelMetadata;
 pub struct ModelCapabilityMatcher;
 
 /// Model capability scores for different aspects
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CapabilityScore {
     /// Overall match score (0-1)
     pub overall: f32,
@@ -18,7 +19,7 @@ pub struct CapabilityScore {
 }
 
 /// Requirements derived from text characteristics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelRequirements {
     /// Minimum context window needed
     pub min_context_window: usize,
@@ -166,7 +167,9 @@ impl ModelCapabilityMatcher {
         
         // Required capabilities check (weight: 0.4)
         let required_met = requirements.required_capabilities.iter()
-            .filter(|cap| model.capabilities.contains(cap))
+            .filter(|cap| {
+                model.capabilities.iter().any(|c| format!("{:?}", c).to_lowercase() == cap.to_lowercase())
+            })
             .count();
         let required_score = if requirements.required_capabilities.is_empty() {
             1.0
@@ -179,14 +182,18 @@ impl ModelCapabilityMatcher {
         
         if required_score < 1.0 {
             let missing: Vec<_> = requirements.required_capabilities.iter()
-                .filter(|cap| !model.capabilities.contains(cap))
+                .filter(|cap| {
+                    !model.capabilities.iter().any(|c| format!("{:?}", c).to_lowercase() == cap.to_lowercase())
+                })
                 .collect();
             score.reasons.push(format!("Missing required capabilities: {:?}", missing));
         }
         
         // Preferred capabilities check (weight: 0.1)
         let preferred_met = requirements.preferred_capabilities.iter()
-            .filter(|cap| model.capabilities.contains(cap))
+            .filter(|cap| {
+                model.capabilities.iter().any(|c| format!("{:?}", c).to_lowercase() == cap.to_lowercase())
+            })
             .count();
         let preferred_score = if requirements.preferred_capabilities.is_empty() {
             1.0
@@ -198,15 +205,15 @@ impl ModelCapabilityMatcher {
         score.scores.insert("preferred_capabilities".to_string(), preferred_score);
         
         // Performance class match (weight: 0.2)
-        let performance_score = match (requirements.complexity_tier, &model.performance_class) {
-            (1..=2, "fast") => 1.0,
-            (3..=4, "balanced") => 1.0,
-            (5, "quality") => 1.0,
-            (1..=2, "balanced") => 0.8,
-            (3..=4, "fast") => 0.6,
-            (3..=4, "quality") => 0.8,
-            (5, "balanced") => 0.7,
-            (5, "fast") => 0.4,
+        let performance_score = match (requirements.complexity_tier, model.performance_class.to_lowercase().as_str()) {
+            (1..=2, "low") | (1..=2, "fast") => 1.0,
+            (3..=4, "medium") | (3..=4, "balanced") => 1.0,
+            (5, "high") | (5, "quality") => 1.0,
+            (1..=2, "medium") | (1..=2, "balanced") => 0.8,
+            (3..=4, "low") | (3..=4, "fast") => 0.6,
+            (3..=4, "high") | (3..=4, "quality") => 0.8,
+            (5, "medium") | (5, "balanced") => 0.7,
+            (5, "low") | (5, "fast") => 0.4,
             _ => 0.5,
         };
         weighted_score += performance_score * 0.2;
@@ -271,19 +278,43 @@ mod tests {
     use crate::ai::services::text_analyzer::TextAnalyzer;
     
     fn create_test_model(name: &str, capabilities: Vec<&str>, performance_class: &str) -> ModelMetadata {
+        use crate::ai::models::{ModelFormat, ModelSource, PerformanceProfile, ModelRequirements, Capability};
+        
         ModelMetadata {
             id: name.to_string(),
             name: name.to_string(),
-            provider: "test".to_string(),
+            display_name: name.to_string(),
+            description: "Test model".to_string(),
             architecture: "transformer".to_string(),
             parameters: "1B".to_string(),
             size_bytes: 1_000_000_000,
-            capabilities: capabilities.into_iter().map(|s| s.to_string()).collect(),
+            format: ModelFormat::ONNX,
+            source: ModelSource::Local { path: std::path::PathBuf::from("test.onnx") },
+            capabilities: capabilities.into_iter().map(|s| match s {
+                "grammar_correction" => Capability::GrammarCorrection,
+                "punctuation" => Capability::Punctuation,
+                "summarization" => Capability::Summarization,
+                "translation" => Capability::Translation,
+                "intent_detection" => Capability::IntentDetection,
+                _ => Capability::GrammarCorrection,
+            }).collect(),
+            performance: PerformanceProfile {
+                avg_latency_ms: 50.0,
+                tokens_per_second: 100.0,
+                memory_usage_mb: 1000,
+                supports_batch: false,
+                max_batch_size: 1,
+            },
+            requirements: ModelRequirements {
+                min_ram_gb: 1.0,
+                min_vram_gb: None,
+                supports_cpu: true,
+                supports_gpu: false,
+                supported_backends: vec!["cpu".to_string()],
+            },
             performance_class: performance_class.to_string(),
             context_window: 4096,
             supports_gpu: true,
-            supported_languages: vec!["en".to_string()],
-            license: "MIT".to_string(),
             download_url: None,
             sha256: None,
         }

@@ -1,5 +1,5 @@
 use crate::ai::{Result, AIError};
-use crate::ai::common::{ModelInfo, ModelConfig, QuantizationType};
+use crate::ai::common::{ModelInfo, QuantizationType};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;

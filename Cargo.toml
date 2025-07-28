@@ -82,7 +82,7 @@ candle-nn = { version = "0.9", optional = true }
 candle-transformers = { version = "0.9", optional = true }
 ort = { version = "1.16", optional = true, features = ["download-binaries"] }
 tokenizers = { version = "0.21", optional = true }
-ndarray = { version = "0.16", optional = true }
+ndarray = { version = "0.15", optional = true }
 
 # Telemetry dependencies
 opentelemetry = { version = "0.24", features = ["metrics", "trace"], optional = true }

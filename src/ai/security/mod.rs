@@ -160,10 +160,9 @@ impl ApiKeyManager {
             .await
             .map_err(|e| AIError::ConfigError(format!("Failed to get default collection: {}", e)))?;
         
-        let attributes = vec![
-            ("application", SERVICE_NAME),
-            ("service", key_id),
-        ];
+        let mut attributes = std::collections::HashMap::new();
+        attributes.insert("application", SERVICE_NAME);
+        attributes.insert("service", key_id);
         
         collection.create_item(
             &format!("{} - {}", SERVICE_NAME, key_id),
@@ -220,10 +219,9 @@ impl ApiKeyManager {
             .await
             .map_err(|e| AIError::ConfigError(format!("Failed to connect to secret service: {}", e)))?;
         
-        let search_attributes = vec![
-            ("application", SERVICE_NAME),
-            ("service", key_id),
-        ];
+        let mut search_attributes = std::collections::HashMap::new();
+        search_attributes.insert("application", SERVICE_NAME);
+        search_attributes.insert("service", key_id);
         
         let search_result = ss.search_items(search_attributes)
             .await
@@ -268,10 +266,9 @@ impl ApiKeyManager {
             .await
             .map_err(|e| AIError::ConfigError(format!("Failed to connect to secret service: {}", e)))?;
         
-        let search_attributes = vec![
-            ("application", SERVICE_NAME),
-            ("service", key_id),
-        ];
+        let mut search_attributes = std::collections::HashMap::new();
+        search_attributes.insert("application", SERVICE_NAME);
+        search_attributes.insert("service", key_id);
         
         let search_result = ss.search_items(search_attributes)
             .await

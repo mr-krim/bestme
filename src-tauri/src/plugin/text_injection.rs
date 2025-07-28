@@ -5,21 +5,30 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{
-    plugin::{Builder, TauriPlugin},
+    plugin::{Builder, Plugin},
     AppHandle, Manager, Runtime, State,
 };
 use tokio::sync::Mutex;
 
+// Conditionally import text injection types
 #[cfg(feature = "text-injection")]
 use bestme::text_injection::{
-    InjectionConfig, InjectionManager, InjectionMode, PermissionStatus, WindowInfo,
+    InjectionManager,
+};
+
+// Import types that we need regardless of feature
+use bestme::text_injection::{
+    InjectionConfig, InjectionMode, PermissionStatus, WindowInfo,
 };
 
 /// Text injection state for the Tauri plugin
 pub struct TextInjectionState {
     #[cfg(feature = "text-injection")]
     manager: Option<Arc<Mutex<InjectionManager>>>,
+    #[cfg(feature = "text-injection")]
     config: Arc<Mutex<InjectionConfig>>,
+    #[cfg(not(feature = "text-injection"))]
+    config: Arc<Mutex<()>>,
     enabled: Arc<Mutex<bool>>,
 }
 
@@ -28,7 +37,10 @@ impl TextInjectionState {
         Self {
             #[cfg(feature = "text-injection")]
             manager: None,
+            #[cfg(feature = "text-injection")]
             config: Arc::new(Mutex::new(InjectionConfig::default())),
+            #[cfg(not(feature = "text-injection"))]
+            config: Arc::new(Mutex::new(())),
             enabled: Arc::new(Mutex::new(false)),
         }
     }
@@ -58,7 +70,7 @@ impl TextInjectionState {
 
 /// Enable or disable text injection
 #[tauri::command]
-async fn enable_text_injection(
+pub async fn enable_text_injection(
     enabled: bool,
     state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
@@ -84,7 +96,7 @@ async fn enable_text_injection(
 
 /// Inject text into the active application
 #[tauri::command]
-async fn inject_text(
+pub async fn inject_text(
     text: String,
     state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
@@ -114,7 +126,7 @@ async fn inject_text(
 
 /// Get the current active window information
 #[tauri::command]
-async fn get_active_window(
+pub async fn get_active_window(
     state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<WindowInfo, String> {
     #[cfg(feature = "text-injection")]
@@ -146,7 +158,7 @@ async fn get_active_window(
 
 /// Check text injection permissions
 #[tauri::command]
-async fn check_injection_permissions(
+pub async fn check_injection_permissions(
     state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<PermissionStatus, String> {
     #[cfg(feature = "text-injection")]
@@ -182,7 +194,7 @@ async fn check_injection_permissions(
 
 /// Request necessary permissions for text injection
 #[tauri::command]
-async fn request_injection_permissions(
+pub async fn request_injection_permissions(
     state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
     #[cfg(feature = "text-injection")]
@@ -206,7 +218,7 @@ async fn request_injection_permissions(
 
 /// Update text injection configuration
 #[tauri::command]
-async fn update_injection_config(
+pub async fn update_injection_config(
     config: InjectionConfig,
     state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
@@ -232,7 +244,7 @@ async fn update_injection_config(
 
 /// Set injection mode
 #[tauri::command]
-async fn set_injection_mode(
+pub async fn set_injection_mode(
     mode: InjectionMode,
     state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
@@ -252,34 +264,21 @@ async fn set_injection_mode(
     }
 }
 
-/// Text injection plugin builder
+/// Text injection plugin for Tauri 2.0
+#[derive(Default)]
 pub struct TextInjectionPlugin<R: Runtime> {
-    invoke_handler: Box<dyn Fn(tauri::Invoke<R>) + Send + Sync>,
-}
-
-impl<R: Runtime> Default for TextInjectionPlugin<R> {
-    fn default() -> Self {
-        Self {
-            invoke_handler: Box::new(tauri::generate_handler![
-                enable_text_injection,
-                inject_text,
-                get_active_window,
-                check_injection_permissions,
-                request_injection_permissions,
-                update_injection_config,
-                set_injection_mode,
-            ]),
-        }
-    }
+    _phantom: std::marker::PhantomData<fn() -> R>,
 }
 
 impl<R: Runtime> TextInjectionPlugin<R> {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
     }
 }
 
-impl<R: Runtime> TauriPlugin<R> for TextInjectionPlugin<R> {
+impl<R: Runtime> Plugin<R> for TextInjectionPlugin<R> {
     fn name(&self) -> &'static str {
         "text-injection"
     }
@@ -311,9 +310,6 @@ impl<R: Runtime> TauriPlugin<R> for TextInjectionPlugin<R> {
         Ok(())
     }
     
-    fn extend_api(&mut self, message: tauri::Invoke<R>) {
-        (self.invoke_handler)(message)
-    }
 }
 
 // Re-export the types needed by the UI

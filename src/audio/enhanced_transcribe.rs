@@ -1,7 +1,7 @@
 //! Enhanced transcription with advanced Whisper features
 
-use anyhow::{Context, Result};
-use log::{debug, info, warn};
+use anyhow::Result;
+use log::debug;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use parking_lot::Mutex;
@@ -296,7 +296,8 @@ impl EnhancedWhisperProcessor {
     }
     
     /// Reconstruct words from tokens
-    fn reconstruct_words(tokens: &mut Vec<TokenInfo>) {
+    #[doc(hidden)]
+    pub fn reconstruct_words(tokens: &mut Vec<TokenInfo>) {
         let mut current_word = String::new();
         let mut word_start: Option<f32> = None;
         let mut word_tokens: Vec<usize> = Vec::new();
@@ -491,11 +492,12 @@ pub struct HallucinationDetector {
 impl HallucinationDetector {
     pub fn new() -> Self {
         let patterns = vec![
-            regex::Regex::new(r"(.+)\1{3,}").unwrap(), // Repeated phrases
+            // Note: Backreferences not supported, so we'll check repetitions differently
             regex::Regex::new(r"^(\s*\.\s*){3,}$").unwrap(), // Just dots
             regex::Regex::new(r"^(\s*,\s*){3,}$").unwrap(), // Just commas
             regex::Regex::new(r"thank you for watching").unwrap(), // Common YouTube hallucination
             regex::Regex::new(r"please subscribe").unwrap(), // Another YouTube pattern
+            regex::Regex::new(r"(\w+\s+){3,}(\w+\s+){3,}").unwrap(), // Repeated word patterns
         ];
         
         Self {

@@ -183,7 +183,7 @@ impl TranscriptionManager {
                 info!("Loading Whisper model from {:?}", model_file);
                 
                 // Create context parameters with GPU support if available
-                let mut params = WhisperContextParameters::new();
+                let params = WhisperContextParameters::new();
                 
                 // Enable GPU if any GPU feature is enabled
                 #[cfg(any(feature = "gpu-cuda", feature = "gpu-metal", feature = "gpu-vulkan", feature = "gpu-hipblas"))]

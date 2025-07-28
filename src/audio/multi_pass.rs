@@ -239,7 +239,7 @@ impl MultiPassProcessor {
             
             // Process audio
             match processor.process_enhanced(audio_data).await {
-                Ok(Some(mut segment)) => {
+                Ok(Some(segment)) => {
                     // Apply hallucination filter if enabled
                     if pass_config.filter_hallucinations {
                         if self.hallucination_detector.is_hallucination(&segment.text, segment.confidence) {

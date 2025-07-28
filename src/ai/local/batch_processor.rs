@@ -1,4 +1,4 @@
-use crate::ai::{Result, AIError, EnhancementOptions, EnhancedText};
+use crate::ai::{Result, EnhancementOptions};
 use crate::ai::services::model_service::AIModel;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};

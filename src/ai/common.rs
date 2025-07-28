@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,21 +96,22 @@ impl TextProcessor for StandardTextProcessor {
     }
 }
 
-pub const AVAILABLE_MODELS: &[ModelInfo] = &[
-    ModelInfo {
-        name: "phi-3-mini".to_string(),
-        size_bytes: 3_800_000_000,
-        parameters: "3.8B".to_string(),
-        capabilities: vec![
-            "grammar_correction".to_string(),
-            "punctuation".to_string(),
-            "intent_detection".to_string(),
-        ],
-        requirements: ModelRequirements {
-            min_ram_gb: 8.0,
-            min_vram_gb: Some(4.0),
-            supports_gpu: true,
-            supports_quantization: true,
+pub fn get_available_models() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            name: "phi-3-mini".to_string(),
+            size_bytes: 3_800_000_000,
+            parameters: "3.8B".to_string(),
+            capabilities: vec![
+                "grammar_correction".to_string(),
+                "punctuation".to_string(),
+                "intent_detection".to_string(),
+            ],
+            requirements: ModelRequirements {
+                min_ram_gb: 8.0,
+                min_vram_gb: Some(4.0),
+                supports_gpu: true,
+                supports_quantization: true,
         },
     },
     ModelInfo {
@@ -127,10 +127,11 @@ pub const AVAILABLE_MODELS: &[ModelInfo] = &[
             min_vram_gb: Some(2.0),
             supports_gpu: true,
             supports_quantization: true,
+            },
         },
-    },
-];
+    ]
+}
 
-pub fn find_model_info(model_name: &str) -> Option<&'static ModelInfo> {
-    AVAILABLE_MODELS.iter().find(|m| m.name == model_name)
+pub fn find_model_info(model_name: &str) -> Option<ModelInfo> {
+    get_available_models().into_iter().find(|m| m.name == model_name)
 }

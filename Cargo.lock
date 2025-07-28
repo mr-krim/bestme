@@ -527,7 +527,7 @@ dependencies = [
  "hound",
  "log",
  "lru",
- "ndarray 0.16.1",
+ "ndarray",
  "num_cpus",
  "nvml-wrapper",
  "objc",
@@ -581,10 +581,12 @@ dependencies = [
  "anyhow",
  "bestme",
  "chrono",
+ "cpal",
  "env_logger",
  "futures",
  "log",
  "once_cell",
+ "opentelemetry",
  "parking_lot",
  "regex",
  "reqwest",
@@ -3925,21 +3927,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ndarray"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841"
-dependencies = [
- "matrixmultiply",
- "num-complex",
- "num-integer",
- "num-traits",
- "portable-atomic",
- "portable-atomic-util",
- "rawpointer",
-]
-
-[[package]]
 name = "ndk"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4753,7 +4740,7 @@ dependencies = [
  "half",
  "lazy_static",
  "libc",
- "ndarray 0.15.6",
+ "ndarray",
  "tar",
  "thiserror 1.0.69",
  "tracing",

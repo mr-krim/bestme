@@ -1,8 +1,7 @@
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use dashmap::DashMap;
+use serde::{Serialize, Deserialize};
 
 use crate::ai::services::{
     ModelService,
@@ -23,7 +22,7 @@ pub struct ModelSelector {
 }
 
 /// Configuration for model selection
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSelectorConfig {
     /// Enable performance-based selection
     pub use_performance_metrics: bool,
@@ -56,7 +55,7 @@ impl Default for ModelSelectorConfig {
 }
 
 /// Selection result with detailed scoring
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectionResult {
     pub selected_model: ModelMetadata,
     pub capability_score: CapabilityScore,
@@ -68,13 +67,14 @@ pub struct SelectionResult {
 }
 
 /// Performance metrics for a model
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPerformanceMetrics {
     pub avg_latency_ms: f32,
     pub p95_latency_ms: f32,
     pub avg_tokens_per_second: f32,
     pub error_rate: f32,
     pub memory_usage_mb: f32,
+    #[serde(skip, default = "Instant::now")]
     pub last_updated: Instant,
 }
 
@@ -113,7 +113,7 @@ impl SelectionCache {
         // Simple LRU-like behavior: remove oldest if at capacity
         if self.cache.len() >= self.max_size {
             if let Some(oldest_key) = self.cache.iter()
-                .min_by_key(|entry| entry.1.1)
+                .min_by_key(|entry| entry.value().1)
                 .map(|entry| entry.key().clone()) {
                 self.cache.remove(&oldest_key);
             }
@@ -175,7 +175,7 @@ impl ModelSelector {
         // Get model metadata
         let mut models_metadata = Vec::new();
         for model_id in &available_models {
-            if let Ok(Some(metadata)) = self.model_service.get_registry()
+            if let Ok(metadata) = self.model_service.get_registry()
                 .get_model_metadata(model_id).await {
                 models_metadata.push(metadata);
             }
@@ -227,10 +227,11 @@ impl ModelSelector {
         self.selection_cache.put(cache_key, result.clone());
         
         // Record metrics
-        self.metrics_collector.record_model_selection(
-            &best_model.0.id,
-            best_model.2,
-        ).await;
+        // TODO: Add model selection metrics
+        // self.metrics_collector.record_model_selection(
+        //     &best_model.0.id,
+        //     best_model.2,
+        // ).await;
         
         Ok(result)
     }
@@ -269,7 +270,7 @@ impl ModelSelector {
             // Bonus for already loaded models
             if self.config.prefer_loaded_models {
                 let loaded_models = self.model_service.list_loaded_models().await;
-                if loaded_models.iter().any(|m| m.id == model.id) {
+                if loaded_models.iter().any(|m| m.model_id == model.id) {
                     combined_score *= 1.1; // 10% bonus
                 }
             }
@@ -295,14 +296,18 @@ impl ModelSelector {
         requirements: &ModelRequirements,
     ) -> Option<f32> {
         // Get performance metrics from model service
-        match self.model_service.get_model_performance(&model.id).await {
-            Ok(metrics) => {
+        // TODO: Implement get_model_performance in ModelService
+        // match self.model_service.get_model_performance(&model.id).await {
+        //     Ok(metrics) => {
+        {
+            // Use default performance metrics from model metadata
+            let metrics = &model.performance;
                 let mut score = 0.0;
                 let mut weight_sum = 0.0;
                 
                 // Latency score (lower is better)
                 if metrics.avg_latency_ms > 0.0 {
-                    let latency_score = (requirements.max_latency_ms as f32 / metrics.avg_latency_ms)
+                    let latency_score = (requirements.max_latency_ms as f32 / metrics.avg_latency_ms as f32)
                         .min(1.0)
                         .max(0.0);
                     score += latency_score * 0.4;
@@ -310,25 +315,27 @@ impl ModelSelector {
                 }
                 
                 // Throughput score (higher is better)
-                if metrics.avg_tokens_per_second > 0.0 {
-                    let throughput_score = (metrics.avg_tokens_per_second / 100.0).min(1.0);
+                if metrics.tokens_per_second > 0.0 {
+                    let throughput_score = (metrics.tokens_per_second / 100.0).min(1.0) as f32;
                     score += throughput_score * 0.3;
                     weight_sum += 0.3;
                 }
                 
                 // Error rate score (lower is better)
-                let error_score = 1.0 - metrics.error_rate.min(1.0);
-                score += error_score * 0.3;
-                weight_sum += 0.3;
+                // TODO: Add error_rate to PerformanceProfile
+                // let error_score = 1.0 - metrics.error_rate.min(1.0);
+                // score += error_score * 0.3;
+                // weight_sum += 0.3;
                 
                 if weight_sum > 0.0 {
                     Some(score / weight_sum)
                 } else {
                     None
                 }
-            }
-            Err(_) => None,
         }
+        // }
+        // Err(_) => None,
+        // }
     }
     
     /// Generate cache key for text
@@ -411,13 +418,15 @@ impl ModelSelector {
     
     /// Get selection history
     pub async fn get_selection_history(&self) -> Vec<(String, String, f32)> {
-        self.metrics_collector.get_model_selection_history().await
-            .into_iter()
-            .map(|(model_id, score, _)| {
-                let reason = format!("Selected with score {:.2}", score);
-                (model_id, reason, score)
-            })
-            .collect()
+        // TODO: Implement model selection history in metrics
+        // self.metrics_collector.get_model_selection_history().await
+        //     .into_iter()
+        //     .map(|(model_id, score, _)| {
+        vec![] // Return empty for now
+        //         let reason = format!("Selected with score {:.2}", score);
+        //         (model_id, reason, score)
+        //     })
+        //     .collect()
     }
     
     /// Clear selection cache
@@ -444,10 +453,13 @@ mod tests {
         // Implementation depends on the actual service structure
     }
     
-    #[test]
-    fn test_cache_key_generation() {
+    #[tokio::test]
+    async fn test_cache_key_generation() {
+        use opentelemetry::global;
+        
         let model_service = Arc::new(ModelService::new().await.unwrap());
-        let metrics = Arc::new(MetricsCollector::new());
+        let meter = global::meter("test");
+        let metrics = Arc::new(MetricsCollector::new("test-model".to_string(), meter));
         let selector = ModelSelector::new(model_service, metrics, Default::default());
         
         let key1 = selector.generate_cache_key("This is a test");

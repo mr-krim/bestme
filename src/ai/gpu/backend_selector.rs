@@ -1,6 +1,5 @@
 use super::{AIGpuBackend, AIGpuInfo, GpuDetector};
-use log::{debug, info, warn};
-use std::sync::Arc;
+use log::info;
 
 /// Default GPU detector implementation
 pub struct DefaultGpuDetector {

@@ -4,6 +4,7 @@
 mod tests {
     use super::super::*;
     use crate::text_injection::keycodes::{GenericKeycodeMapper, VirtualKey};
+    use std::collections::HashMap;
     
     #[test]
     fn test_keycode_mapper_basic_chars() {
@@ -140,15 +141,14 @@ mod tests {
     fn test_app_profile() {
         let profile = AppProfile {
             app_name: "TestApp".to_string(),
-            app_path: Some("/path/to/app".to_string()),
-            mode: InjectionMode::Direct,
-            enabled: true,
-            custom_settings: None,
+            preferred_mode: InjectionMode::Direct,
+            requires_special_handling: false,
+            custom_settings: HashMap::new(),
         };
         
         assert_eq!(profile.app_name, "TestApp");
-        assert!(profile.enabled);
-        assert!(matches!(profile.mode, InjectionMode::Direct));
+        assert!(!profile.requires_special_handling);
+        assert!(matches!(profile.preferred_mode, InjectionMode::Direct));
     }
     
     #[cfg(feature = "text-injection")]
@@ -306,23 +306,21 @@ mod integration_tests {
         let profiles = vec![
             AppProfile {
                 app_name: "chrome".to_string(),
-                app_path: None,
-                mode: InjectionMode::Paste {
+                preferred_mode: InjectionMode::Paste {
                     restore_clipboard: true,
                     use_clipboard: true,
                 },
-                enabled: true,
-                custom_settings: None,
+                requires_special_handling: false,
+                custom_settings: HashMap::new(),
             },
             AppProfile {
                 app_name: "code".to_string(),
-                app_path: Some("/usr/bin/code".to_string()),
-                mode: InjectionMode::Type {
+                preferred_mode: InjectionMode::Type {
                     delay_ms: 5,
                     simulate_typing: true,
                 },
-                enabled: true,
-                custom_settings: None,
+                requires_special_handling: false,
+                custom_settings: HashMap::new(),
             },
         ];
         

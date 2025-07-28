@@ -4,8 +4,6 @@
 //! GPU → CPU → Cache → Error
 
 use crate::ai::{Result, AIError};
-use crate::ai::telemetry::get_metrics;
-use opentelemetry::KeyValue;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -44,7 +42,7 @@ impl ExecutionMode {
 }
 
 /// Strategy for fallback execution
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum FallbackStrategy {
     /// Try all modes in sequence
     Sequential,
@@ -52,6 +50,16 @@ pub enum FallbackStrategy {
     Adaptive,
     /// Custom strategy function
     Custom(Arc<dyn Fn(&AIError) -> ExecutionMode + Send + Sync>),
+}
+
+impl std::fmt::Debug for FallbackStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sequential => write!(f, "Sequential"),
+            Self::Adaptive => write!(f, "Adaptive"),
+            Self::Custom(_) => write!(f, "Custom(<function>)"),
+        }
+    }
 }
 
 /// Fallback chain executor

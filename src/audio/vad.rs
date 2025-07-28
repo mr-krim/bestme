@@ -1,7 +1,6 @@
 //! Voice Activity Detection (VAD) module for efficient audio processing
 
-use anyhow::Result;
-use log::{debug, info};
+use log::debug;
 use std::collections::VecDeque;
 
 /// Voice Activity Detector for identifying speech segments
@@ -16,6 +15,7 @@ pub struct VoiceActivityDetector {
     max_silence_samples: usize,
     
     /// Sample rate
+    #[allow(dead_code)]
     sample_rate: usize,
     
     /// Rolling energy buffer for smoothing

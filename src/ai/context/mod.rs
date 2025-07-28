@@ -2,7 +2,7 @@ pub mod conversation;
 pub mod memory;
 pub mod templates;
 
-use crate::ai::{Result, AIError};
+use crate::ai::Result;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 
@@ -145,16 +145,14 @@ impl ContextWindow {
     pub fn compress(&mut self, config: &ContextConfig) {
         // Remove turns that exceed max_turns
         while self.turns.len() > config.max_turns {
-            if let Some(removed) = self.turns.remove(0) {
-                self.total_tokens = self.total_tokens.saturating_sub(removed.tokens);
-            }
+            let removed = self.turns.remove(0);
+            self.total_tokens = self.total_tokens.saturating_sub(removed.tokens);
         }
         
         // Remove turns that exceed max_tokens
         while self.total_tokens > config.max_tokens && !self.turns.is_empty() {
-            if let Some(removed) = self.turns.remove(0) {
-                self.total_tokens = self.total_tokens.saturating_sub(removed.tokens);
-            }
+            let removed = self.turns.remove(0);
+            self.total_tokens = self.total_tokens.saturating_sub(removed.tokens);
         }
     }
     

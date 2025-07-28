@@ -3,7 +3,6 @@ use crate::ai::common::ModelInfo;
 use crate::ai::local::LocalModel;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 /// ONNX-based implementation for grammar correction models
 pub struct OnnxGrammarModel {
@@ -15,11 +14,17 @@ pub struct OnnxGrammarModel {
 
 impl OnnxGrammarModel {
     pub async fn load(model_path: &Path, model_info: ModelInfo) -> Result<Self> {
-        // Initialize ONNX Runtime is not needed with ort 1.16 - it's done automatically
+        // Initialize ONNX Runtime environment
+        let environment = Arc::new(ort::Environment::builder()
+            .with_name("bestme_grammar")
+            .build()
+            .map_err(|e| AIError::ConfigError(format!("Failed to create ONNX environment: {}", e)))?);
 
         // Load the ONNX model
-        let session = ort::Session::new(model_path)
-            .map_err(|e| AIError::ModelNotFound(format!("Failed to load model: {}", e)))?;
+        let session = Arc::new(ort::SessionBuilder::new(&environment)
+            .map_err(|e| AIError::ConfigError(format!("Failed to create session builder: {}", e)))?
+            .with_model_from_file(model_path)
+            .map_err(|e| AIError::ModelNotFound(format!("Failed to load model: {}", e)))?);
 
         // Load tokenizer
         let tokenizer_path = model_path.with_extension("json");
@@ -27,7 +32,7 @@ impl OnnxGrammarModel {
             .map_err(|e| AIError::ConfigError(format!("Failed to load tokenizer: {}", e)))?;
 
         Ok(Self {
-            session: Arc::new(session),
+            session,
             tokenizer: Arc::new(tokenizer),
             model_info,
             max_length: 512,
@@ -43,7 +48,7 @@ impl OnnxGrammarModel {
     }
 
     async fn run_inference(&self, input_ids: &[u32], attention_mask: &[u32]) -> Result<Vec<u32>> {
-        use ndarray::{Array2, ArrayD};
+        use ndarray::Array2;
         
         // Create input tensors
         let input_ids_array = Array2::from_shape_vec(
@@ -56,33 +61,40 @@ impl OnnxGrammarModel {
             attention_mask.iter().map(|&x| x as i64).collect(),
         ).map_err(|e| AIError::InferenceError(format!("Failed to create attention mask: {}", e)))?;
 
-        // Run inference
-        let input_ids_value = ort::Value::from_array(input_ids_array)
-            .map_err(|e| AIError::InferenceError(format!("Failed to create input_ids value: {}", e)))?;
-        let attention_mask_value = ort::Value::from_array(attention_mask_array)
-            .map_err(|e| AIError::InferenceError(format!("Failed to create attention_mask value: {}", e)))?;
+        // Run inference - create tensors as CowArrays that will live through the session run
+        use ndarray::CowArray;
         
-        let inputs = vec![
-            ("input_ids".to_string(), input_ids_value),
-            ("attention_mask".to_string(), attention_mask_value),
-        ];
-
-        let outputs = self.session.run(inputs)
-            .map_err(|e| AIError::InferenceError(format!("Inference failed: {}", e)))?;
+        // Convert arrays to dynamic dimension CowArrays
+        let input_ids_cow = CowArray::from(input_ids_array.into_dyn());
+        let attention_mask_cow = CowArray::from(attention_mask_array.into_dyn());
+        
+        // Create values and run inference in one expression to ensure lifetimes are correct
+        let outputs = {
+            let input_ids_value = ort::Value::from_array(
+                self.session.allocator(),
+                &input_ids_cow
+            ).map_err(|e| AIError::InferenceError(format!("Failed to create input_ids value: {}", e)))?;
+            
+            let attention_mask_value = ort::Value::from_array(
+                self.session.allocator(),
+                &attention_mask_cow
+            ).map_err(|e| AIError::InferenceError(format!("Failed to create attention_mask value: {}", e)))?;
+            
+            self.session.run(vec![input_ids_value, attention_mask_value])
+                .map_err(|e| AIError::InferenceError(format!("Inference failed: {}", e)))?
+        };
 
         // Extract output tokens
-        let output_key = outputs.keys().next()
+        let output_tensor = outputs.get(0)
             .ok_or_else(|| AIError::InferenceError("No output from model".to_string()))?;
         
-        let output_tensor = &outputs[output_key];
         let output_array = output_tensor
-            .try_extract_tensor::<i64>()
+            .try_extract::<i64>()
             .map_err(|e| AIError::InferenceError(format!("Failed to extract output: {}", e)))?;
 
         // Convert to u32
-        let output_ids: Vec<u32> = output_array
-            .as_slice()
-            .ok_or_else(|| AIError::InferenceError("Failed to get output slice".to_string()))?
+        let output_view = output_array.view();
+        let output_ids: Vec<u32> = output_view
             .iter()
             .map(|&x| x as u32)
             .collect();

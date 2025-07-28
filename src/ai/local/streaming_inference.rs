@@ -1,4 +1,4 @@
-use crate::ai::{Result, AIError, EnhancementOptions, EnhancedText};
+use crate::ai::{Result, AIError, EnhancementOptions};
 use crate::ai::services::model_service::AIModel;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -138,12 +138,12 @@ impl StreamingInference {
                 
                 match update {
                     Some(TextUpdate::Append(text)) => {
-                        let mut buffer = buffer.write().await;
-                        buffer.push_str(&text);
+                        let mut buffer_guard = buffer.write().await;
+                        buffer_guard.push_str(&text);
                         
                         // Check if we should process
-                        if buffer.len() >= config.min_chunk_size {
-                            drop(buffer); // Release lock
+                        if buffer_guard.len() >= config.min_chunk_size {
+                            drop(buffer_guard); // Release lock
                             if let Err(e) = Self::process_buffer(
                                 &model,
                                 &buffer,
@@ -249,6 +249,8 @@ impl StreamingInference {
             preserve_style: true,
             detect_intent: false,
             format_markdown: false,
+            improve_punctuation: true,
+            confidence_threshold: 0.7,
         };
         
         let result = model.enhance_text(&input_text, &options).await?;
@@ -278,6 +280,7 @@ impl StreamingInference {
             end: *current_position + text.len(),
         };
         
+        let segment_len = text.len();
         let segment = ProcessedSegment {
             original: text.clone(),
             enhanced: enhanced.clone(),
@@ -307,7 +310,7 @@ impl StreamingInference {
             log::warn!("Failed to send streaming result: {}", e);
         }
         
-        *current_position += segment.original.len();
+        *current_position += segment_len;
         
         Ok(())
     }

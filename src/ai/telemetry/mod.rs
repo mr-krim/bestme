@@ -62,32 +62,35 @@ pub fn init_telemetry(config: TelemetryConfig) -> Result<TelemetryHandle> {
 
 /// Initialize metrics collection
 fn init_metrics(config: &TelemetryConfig) -> Result<Option<Meter>> {
-    let exporter = if let Some(endpoint) = &config.otlp_endpoint {
+    let reader = if let Some(endpoint) = &config.otlp_endpoint {
         // Use OTLP exporter
-        opentelemetry_otlp::new_exporter()
-            .tonic()
-            .with_endpoint(endpoint)
+        let exporter_builder = opentelemetry_otlp::new_exporter()
+            .tonic();
+        let exporter_builder = opentelemetry_otlp::WithExportConfig::with_endpoint(exporter_builder, endpoint);
+        let exporter = exporter_builder
             .build_metrics_exporter(
-                Box::new(opentelemetry_sdk::metrics::reader::DefaultTemporalitySelector::new()),
                 Box::new(opentelemetry_sdk::metrics::reader::DefaultAggregationSelector::new()),
+                Box::new(opentelemetry_sdk::metrics::reader::DefaultTemporalitySelector::new()),
             )
-            .map_err(|e| AIError::ConfigError(format!("Failed to create OTLP exporter: {}", e)))?
+            .map_err(|e| AIError::ConfigError(format!("Failed to create OTLP exporter: {}", e)))?;
+        PeriodicReader::builder(exporter, runtime::Tokio)
+            .with_interval(config.export_interval)
+            .build()
     } else {
         // Use stdout exporter for development
-        opentelemetry_stdout::MetricsExporter::default()
+        let exporter = opentelemetry_stdout::MetricsExporter::default();
+        PeriodicReader::builder(exporter, runtime::Tokio)
+            .with_interval(config.export_interval)
+            .build()
     };
-    
-    let reader = PeriodicReader::builder(exporter, runtime::Tokio)
-        .with_interval(config.export_interval)
-        .build();
     
     // In newer OpenTelemetry SDK, the meter provider is created differently
     // For now, we'll use the global meter directly
     
     let meter = global::meter_with_version(
-        &config.service_name,
-        Some(&config.service_version),
-        None,
+        config.service_name.clone(),
+        Some(config.service_version.clone()),
+        None::<&str>,
         None,
     );
     
@@ -96,21 +99,25 @@ fn init_metrics(config: &TelemetryConfig) -> Result<Option<Meter>> {
 
 /// Initialize distributed tracing
 fn init_tracing(config: &TelemetryConfig) -> Result<()> {
-    use opentelemetry::trace::TracerProvider;
-    use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
+    
+    use opentelemetry_sdk::trace::{self, Sampler};
     
     let tracer_provider = if let Some(endpoint) = &config.otlp_endpoint {
         // Use OTLP exporter
-        let exporter = opentelemetry_otlp::new_exporter()
-            .tonic()
-            .with_endpoint(endpoint)
+        let exporter_builder = opentelemetry_otlp::new_exporter()
+            .tonic();
+        let exporter_builder = opentelemetry_otlp::WithExportConfig::with_endpoint(exporter_builder, endpoint);
+        let exporter = exporter_builder
             .build_span_exporter()
             .map_err(|e| AIError::ConfigError(format!("Failed to create span exporter: {}", e)))?;
         
         trace::TracerProvider::builder()
             .with_batch_exporter(exporter, runtime::Tokio)
-            .with_sampler(Sampler::AlwaysOn)
-            .with_id_generator(RandomIdGenerator::default())
+            // .with_id_generator(RandomIdGenerator::default()) // Not available in this version
+            .with_config(
+                trace::config()
+                    .with_sampler(Sampler::AlwaysOn)
+            )
             .build()
     } else {
         // Use stdout for development
@@ -118,8 +125,11 @@ fn init_tracing(config: &TelemetryConfig) -> Result<()> {
         
         trace::TracerProvider::builder()
             .with_simple_exporter(exporter)
-            .with_sampler(Sampler::AlwaysOn)
-            .with_id_generator(RandomIdGenerator::default())
+            // .with_id_generator(RandomIdGenerator::default()) // Not available in this version
+            .with_config(
+                trace::config()
+                    .with_sampler(Sampler::AlwaysOn)
+            )
             .build()
     };
     

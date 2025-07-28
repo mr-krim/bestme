@@ -1,4 +1,4 @@
-use crate::ai::{Result, AIError, EnhancedText, Correction};
+use crate::ai::Correction;
 use std::collections::HashMap;
 
 pub struct TextEnhancer {

@@ -2,7 +2,7 @@ use crate::ai::{Result, AIError, EnhancementOptions};
 use crate::ai::services::model_service::{ModelService, AIModel};
 use super::{BenchmarkConfig, BenchmarkResult, TestSample};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::RwLock;
 use serde_json;
 
@@ -56,7 +56,7 @@ impl ModelBenchmark {
     /// Run benchmarks for all available models
     pub async fn benchmark_all_models(&self) -> Result<Vec<BenchmarkResult>> {
         let registry = self.model_service.get_registry();
-        let models = registry.list_models().await?;
+        let models = registry.list_available_models().await;
         
         let mut all_results = Vec::new();
         
@@ -80,6 +80,8 @@ impl ModelBenchmark {
             preserve_style: true,
             detect_intent: false,
             format_markdown: false,
+            confidence_threshold: 0.5,
+            improve_punctuation: true,
         };
         
         for _ in 0..self.config.warmup_iterations {
@@ -104,6 +106,8 @@ impl ModelBenchmark {
             preserve_style: true,
             detect_intent: false,
             format_markdown: false,
+            confidence_threshold: 0.5,
+            improve_punctuation: true,
         };
         
         let mut latencies = Vec::new();

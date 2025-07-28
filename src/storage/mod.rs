@@ -18,7 +18,7 @@ mod operations;
 #[cfg(feature = "storage")]
 pub use database::{Database, DatabaseConfig};
 #[cfg(feature = "storage")]
-pub use models::{Transcript, TranscriptMetadata, SearchQuery, SearchResult};
+pub use models::{Transcript, TranscriptMetadata, SearchQuery, SearchResult, ExportFormat};
 #[cfg(feature = "storage")]
 pub use operations::{StorageManager, StorageOperations};
 

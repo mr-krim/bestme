@@ -80,21 +80,24 @@ impl CustomModelManager {
         let custom_models = Arc::new(RwLock::new(HashMap::new()));
         
         // Load existing custom models
-        let manager = Self {
+        let manager = Arc::new(Self {
             registry,
             validator,
-            custom_models,
-            storage_path,
-        };
+            custom_models: custom_models.clone(),
+            storage_path: storage_path.clone(),
+        });
         
         // Load persisted custom models
+        let manager_clone = manager.clone();
         tokio::spawn(async move {
-            if let Err(e) = manager.load_custom_models().await {
+            if let Err(e) = manager_clone.load_custom_models().await {
                 log::error!("Failed to load custom models: {}", e);
             }
         });
         
-        Ok(manager)
+        // Return the manager, extracting it from the Arc
+        Arc::try_unwrap(manager)
+            .map_err(|_| "Failed to extract manager from Arc".to_string())
     }
     
     /// Import a custom ONNX model
@@ -205,7 +208,7 @@ impl CustomModelManager {
         let compatibility = &validation_result.compatibility;
         
         // Detect capabilities based on model type and structure
-        let mut capabilities = self.detect_capabilities(model_info, model_type);
+        let capabilities = self.detect_capabilities(model_info, model_type);
         
         // Determine performance class based on size and parameters
         let performance_class = if model_info.estimated_parameters < 100_000_000 {
@@ -222,16 +225,44 @@ impl CustomModelManager {
         ModelMetadata {
             id: model_id.to_string(),
             name: name.to_string(),
-            provider: "custom".to_string(),
-            architecture: model_type.to_string(),
-            parameters: self.format_parameters(model_info.estimated_parameters),
+            display_name: name.to_string(),
+            description: format!("Custom {} model", model_type),
             size_bytes: model_info.model_size_bytes,
-            capabilities,
-            performance_class: performance_class.to_string(),
+            format: crate::ai::models::ModelFormat::ONNX,
+            source: crate::ai::models::ModelSource::Local { path: self.storage_path.join(format!("{}.onnx", model_id)) },
+            capabilities: capabilities.into_iter()
+                .filter_map(|cap| match cap.as_str() {
+                    "grammar_correction" | "text_generation" => Some(crate::ai::models::Capability::GrammarCorrection),
+                    "punctuation" => Some(crate::ai::models::Capability::Punctuation),
+                    "sentiment_analysis" | "text_classification" => Some(crate::ai::models::Capability::IntentDetection),
+                    "translation" => Some(crate::ai::models::Capability::Translation),
+                    "summarization" => Some(crate::ai::models::Capability::Summarization),
+                    _ => None,
+                })
+                .collect(),
+            performance: crate::ai::models::PerformanceProfile {
+                avg_latency_ms: 100.0, // Default, will be updated after benchmarking
+                tokens_per_second: 50.0, // Default
+                memory_usage_mb: (model_info.model_size_bytes / (1024 * 1024)) as u64,
+                supports_batch: true,
+                max_batch_size: 8,
+            },
+            requirements: crate::ai::models::ModelRequirements {
+                min_ram_gb: (model_info.model_size_bytes as f32 / 1_073_741_824.0) * 2.0, // 2x model size
+                min_vram_gb: if compatibility.requires_gpu { 
+                    Some((model_info.model_size_bytes as f32 / 1_073_741_824.0) * 1.5)
+                } else { 
+                    None 
+                },
+                supports_cpu: !compatibility.requires_gpu,
+                supports_gpu: true,
+                supported_backends: vec!["ONNX".to_string()],
+            },
+            architecture: model_type.to_string(),
+            parameters: "Unknown".to_string(),
+            performance_class: "Custom".to_string(),
             context_window,
-            supports_gpu: !compatibility.requires_gpu, // If it doesn't require GPU, it supports it optionally
-            supported_languages: vec!["en".to_string()], // Default, user can update
-            license: "custom".to_string(),
+            supports_gpu: true,
             download_url: None,
             sha256: None,
         }
@@ -249,16 +280,25 @@ impl CustomModelManager {
         ModelMetadata {
             id: model_id.to_string(),
             name: name.to_string(),
-            provider: "custom".to_string(),
-            architecture: "unknown".to_string(),
-            parameters: self.format_parameters(model_info.estimated_parameters),
+            display_name: name.to_string(),
+            description: "Custom AI model".to_string(),
             size_bytes: model_info.model_size_bytes,
-            capabilities: vec!["custom".to_string()],
-            performance_class: "balanced".to_string(),
-            context_window: 2048, // Default
+            format: crate::ai::models::ModelFormat::ONNX,
+            source: crate::ai::models::ModelSource::Local { path: self.storage_path.join(format!("{}.onnx", model_id)) },
+            capabilities: vec![crate::ai::models::Capability::GrammarCorrection], // Default capability
+            performance: crate::ai::models::PerformanceProfile::default(),
+            requirements: crate::ai::models::ModelRequirements {
+                min_ram_gb: (model_info.model_size_bytes as f32 / 1_073_741_824.0) * 2.0,
+                min_vram_gb: None,
+                supports_cpu: true,
+                supports_gpu: true,
+                supported_backends: vec!["ONNX".to_string()],
+            },
+            architecture: "Unknown".to_string(),
+            parameters: "Unknown".to_string(),
+            performance_class: "Custom".to_string(),
+            context_window: 512, // Default
             supports_gpu: true,
-            supported_languages: vec!["en".to_string()],
-            license: "custom".to_string(),
             download_url: None,
             sha256: None,
         }
@@ -365,12 +405,14 @@ impl CustomModelManager {
         
         if let Some(model) = models.get_mut(model_id) {
             if let Some(name) = updates.name {
-                model.name = name;
-                model.metadata.name = model.name.clone();
+                model.name = name.clone();
+                model.metadata.name = name.clone();
+                model.metadata.display_name = name;
             }
             
             if let Some(description) = updates.description {
-                model.description = description;
+                model.description = description.clone();
+                model.metadata.description = description;
             }
             
             if let Some(tags) = updates.tags {
@@ -378,15 +420,26 @@ impl CustomModelManager {
             }
             
             if let Some(capabilities) = updates.capabilities {
-                model.metadata.capabilities = capabilities;
+                // Convert string capabilities to enum variants
+                model.metadata.capabilities = capabilities.into_iter()
+                    .filter_map(|cap| match cap.as_str() {
+                        "grammar_correction" => Some(crate::ai::models::Capability::GrammarCorrection),
+                        "punctuation" => Some(crate::ai::models::Capability::Punctuation),
+                        "intent_detection" => Some(crate::ai::models::Capability::IntentDetection),
+                        "style_transformation" => Some(crate::ai::models::Capability::StyleTransformation),
+                        "summarization" => Some(crate::ai::models::Capability::Summarization),
+                        "translation" => Some(crate::ai::models::Capability::Translation),
+                        "question_answering" => Some(crate::ai::models::Capability::QuestionAnswering),
+                        _ => None,
+                    })
+                    .collect();
             }
             
-            if let Some(languages) = updates.supported_languages {
-                model.metadata.supported_languages = languages;
-            }
+            // Note: supported_languages is not part of ModelMetadata structure
             
             // Update in registry
-            self.registry.update_model_metadata(&model_id, model.metadata.clone()).await?;
+            self.registry.update_model_metadata(&model_id, model.metadata.clone()).await
+                .map_err(|e| e.to_string())?;
             
             // Save changes
             drop(models);
@@ -404,7 +457,8 @@ impl CustomModelManager {
         
         if let Some(model) = models.remove(model_id) {
             // Remove from registry
-            self.registry.remove_custom_model(model_id).await?;
+            self.registry.remove_custom_model(model_id).await
+                .map_err(|e| e.to_string())?;
             
             // Delete model file
             let model_path = self.storage_path.join(format!("{}.onnx", model_id));

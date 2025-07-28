@@ -1,4 +1,4 @@
-use crate::ai::{Result, AIError, EnhancementOptions, EnhancedText, Intent, Correction};
+use crate::ai::{Result, EnhancementOptions, EnhancedText, Intent};
 use crate::ai::common::ModelConfig;
 
 pub struct InferenceEngine {
@@ -23,7 +23,7 @@ impl InferenceEngine {
         // 4. Return enhanced text with corrections
         
         let mut enhanced = text.to_string();
-        let mut corrections = Vec::new();
+        let corrections = Vec::new();
         
         if options.correct_grammar {
             enhanced = self.correct_grammar(&enhanced)?;

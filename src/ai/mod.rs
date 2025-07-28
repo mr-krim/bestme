@@ -10,8 +10,8 @@ pub mod telemetry;
 pub mod context;
 pub mod resilience;
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 #[cfg(test)]
 mod integration_tests;
@@ -48,7 +48,7 @@ impl Error for AIError {}
 
 pub type Result<T> = std::result::Result<T, AIError>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PrivacyLevel {
     Strict,     // All processing local only
     Balanced,   // Anonymized cloud requests

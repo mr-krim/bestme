@@ -1,704 +1,449 @@
-# BestMe Development Status
+# BestMe Development Guide
 
-**Last Updated: January 2025**
+This guide contains comprehensive technical information for developers working on BestMe.
 
-## Current Implementation Status
+## Table of Contents
 
-BestMe has successfully migrated to Tauri 2.0 and achieved significant milestones in becoming a fully-featured cross-platform speech-to-text application with advanced AI-powered transcription capabilities.
+1. [Project Architecture](#project-architecture)
+2. [Development Setup](#development-setup)
+3. [Building & Testing](#building--testing)
+4. [Key Components](#key-components)
+5. [AI System](#ai-system)
+6. [Voice Commands](#voice-commands)
+7. [Platform-Specific Notes](#platform-specific-notes)
+8. [Performance & Optimization](#performance--optimization)
+9. [Debugging](#debugging)
+10. [Release Process](#release-process)
 
-**✅ Phase 0 (Core MVP) - COMPLETE**  
-**✅ Phase 0.5 (Whisper Enhancement) - COMPLETE**  
-**✅ Phase 1 (Text Injection System) - COMPLETE**  
-**✅ Phase 1.5 (GPU Acceleration) - COMPLETE**  
-**✅ Phase 2 (AI Integration) - COMPLETE**  
-**🎯 Current Focus: Testing & Polish**
+## Project Architecture
 
-### ✅ Completed Features
+### Technology Stack
 
-1. **Core Application Framework**
-   - ✅ Tauri 2.0 application with Rust backend and Svelte frontend
-   - ✅ Comprehensive configuration management system
-   - ✅ Modular architecture supporting plugins and extensions
-   - ✅ Cross-platform support (Windows, macOS, Linux)
+- **Backend**: Rust with Tauri 2.0
+- **Frontend**: Svelte with TypeScript
+- **Audio**: Whisper AI for transcription
+- **AI**: ONNX Runtime for local inference, multiple cloud providers
+- **GPU**: CUDA, Metal, DirectML support
 
-2. **Audio System**
-   - ✅ Audio device enumeration and selection
-   - ✅ Real-time audio capture using cpal
-   - ✅ Audio level visualization with waveform display
-   - ✅ Custom Tauri plugin for audio processing
-   - ✅ Efficient buffering and sample rate conversion
-   - ✅ Multi-device support with hot-swapping
-
-3. **Transcription Engine**
-   - ✅ Whisper integration for speech-to-text
-   - ✅ On-demand model downloading with progress tracking
-   - ✅ Support for multiple model sizes (tiny, base, small, medium, large)
-   - ✅ Multi-language support (100+ languages)
-   - ✅ Real-time translation to English
-   - ✅ Auto-punctuation and context-aware formatting
-   - ✅ Streaming transcription with optimized buffering
-   - ✅ **Voice Activity Detection (VAD)** with adaptive thresholds
-   - ✅ **Confidence scoring** at token and segment levels
-   - ✅ **Hallucination detection** and filtering
-   - ✅ **Custom vocabulary management** with term boosting
-   - ✅ **Multi-pass processing** for accuracy improvement
-   - ✅ **Word-level timestamps** with reconstruction
-   - ✅ **Advanced Whisper parameters** (20+ configurable options)
-   - ✅ **Prompt engineering** with context awareness
-
-4. **Voice Command System**
-   - ✅ Command detection and pattern matching engine
-   - ✅ Command history tracking and management
-   - ✅ Visual feedback for recognized commands
-   - ✅ Integration with transcription pipeline
-   - ✅ Text editing commands (delete word/sentence/paragraph)
-   - ✅ Command undo/redo functionality
-   - ✅ Real-time command execution during transcription
-   - ✅ All voice command tests passing
-
-5. **User Interface**
-   - ✅ Modern UI with multiple panels (Transcription, Saved Transcripts, Chat, Voice Commands, Vocabulary)
-   - ✅ Settings page with comprehensive configuration options
-   - ✅ System tray integration with context menu
-   - ✅ Real-time audio visualization
-   - ✅ Dark/light theme support (basic implementation)
-   - ✅ Responsive layout adapting to window size
-   - ✅ Toast notifications for user feedback
-   - ✅ **VAD visualization component** showing speech detection status
-   - ✅ **Vocabulary management UI** with full CRUD operations
-   - ✅ **Enhanced settings** for Whisper parameters and VAD
-
-6. **Data Management**
-   - ✅ File-based transcript storage (JSON)
-   - ✅ SQLite storage system with full-text search
-   - ✅ Session management for transcript organization
-   - ✅ Export capabilities (Text, Markdown, JSON, CSV)
-   - ✅ Chat session management with AI integration
-   - ✅ Command history persistence
-   - ✅ Settings persistence across sessions
-   - ✅ Automatic transcript saving during recording
-
-7. **Text Injection System**
-   - ✅ Platform-specific keyboard simulation (Windows, macOS, Linux)
-   - ✅ Three injection modes (Type, Paste, Direct)
-   - ✅ Active window detection and context awareness
-   - ✅ Application profiles for optimized behavior
-   - ✅ Multi-language support with special characters
-   - ✅ Permission management system
-   - ✅ UI settings integration
-   - ✅ < 50ms injection latency
-
-8. **Development Infrastructure**
-   - ✅ Docker-based cross-platform build environment
-   - ✅ Comprehensive development scripts
-   - ✅ Well-organized project structure
-   - ✅ Documentation system
-
-## Project Structure
+### Project Structure
 
 ```
 bestme/
-├── Cargo.toml               # Main workspace configuration (Tauri 2.0)
-├── src/                     # Core Rust library code
-│   ├── audio/               # Audio capture and processing
-│   │   ├── capture.rs       # Audio capture implementation
-│   │   ├── device.rs        # Audio device management
-│   │   ├── transcribe.rs    # Whisper transcription engine
-│   │   ├── voice_commands.rs # Voice command processing
-│   │   ├── vad.rs           # Voice Activity Detection
-│   │   ├── enhanced_transcribe.rs # Enhanced transcription features
-│   │   ├── streaming_transcribe.rs # Real-time streaming pipeline
-│   │   ├── vocabulary.rs    # Custom vocabulary management
-│   │   ├── multi_pass.rs    # Multi-pass processing
-│   │   ├── tests/           # Unit and integration tests
-│   │   └── gpu/             # GPU acceleration module
-│   │       ├── mod.rs       # GPU manager and backend selection
-│   │       ├── cuda.rs      # NVIDIA CUDA backend
-│   │       ├── metal.rs     # Apple Metal backend
-│   │       ├── rocm.rs      # AMD ROCm backend
-│   │       └── opencl.rs    # OpenCL/Vulkan fallback
-│   ├── storage/             # Storage system (SQLite)
-│   │   ├── mod.rs           # Storage module exports
-│   │   ├── database.rs      # Database connection and schema
-│   │   ├── models.rs        # Data models (Transcript, Session, etc.)
-│   │   └── operations.rs    # CRUD operations and search
-│   ├── text_injection/      # Text injection system
-│   │   ├── mod.rs           # Platform abstraction
-│   │   ├── windows.rs       # Windows SendInput implementation
-│   │   ├── macos.rs         # macOS Core Graphics implementation
-│   │   ├── linux.rs         # Linux X11/Wayland implementation
-│   │   ├── context.rs       # Active window detection
-│   │   ├── keycodes.rs      # Cross-platform key mappings
-│   │   └── tests.rs         # Unit tests
-│   ├── config.rs            # Configuration management
-│   ├── gui/                 # GUI components
-│   │   ├── icons.rs         # Icon management
-│   │   ├── settings.rs      # Settings window
-│   │   ├── tray.rs          # System tray integration
-│   │   └── window.rs        # Window management
-│   └── lib.rs               # Library exports
-├── src-tauri/               # Tauri application backend
-│   ├── Cargo.toml           # Tauri-specific dependencies
+├── src/                    # Core Rust library
+│   ├── audio/             # Audio capture and processing
+│   ├── ai/                # AI integration (local/cloud)
+│   ├── config/            # Configuration management
+│   ├── gui/               # Native GUI implementations
+│   └── lib.rs             # Library entry point
+├── src-tauri/             # Tauri application
 │   ├── src/
-│   │   ├── main.rs          # Tauri application entry point
-│   │   ├── plugin/          # Custom Tauri plugins
-│   │   │   ├── audio.rs     # Audio processing plugin
-│   │   │   ├── transcribe.rs # Transcription plugin
-│   │   │   ├── voice_commands.rs # Voice commands plugin
-│   │   │   ├── storage.rs   # Storage plugin (SQLite)
-│   │   │   └── text_injection.rs # Text injection plugin
-│   │   └── system_monitor.rs # System monitoring
-│   └── tauri.conf.json      # Tauri configuration
-├── ui/                      # Frontend code (Svelte)
+│   │   ├── main.rs        # Application entry
+│   │   └── plugin/        # Custom Tauri plugins
+│   └── tauri.conf.json    # Tauri configuration
+├── ui/                    # Svelte frontend
 │   ├── src/
-│   │   ├── App.svelte       # Main application component
-│   │   ├── components/      # UI components
-│   │   │   ├── TopBar.svelte
-│   │   │   ├── LeftPanel.svelte
-│   │   │   ├── MiddlePanel.svelte
-│   │   │   ├── MainPanel.svelte
-│   │   │   └── BottomBar.svelte
-│   │   ├── views/           # View components
-│   │   │   ├── TranscriptionView.svelte
-│   │   │   ├── SavedTranscriptView.svelte
-│   │   │   ├── ChatView.svelte
-│   │   │   ├── SettingsView.svelte
-│   │   │   ├── VoiceCommandsView.svelte
-│   │   │   └── VocabularyView.svelte
-│   │   ├── components/      # Reusable components
-│   │   │   ├── TextInjectionSettings.svelte
-│   │   │   └── VADVisualization.svelte
-│   │   ├── types.ts         # TypeScript type definitions
-│   │   └── theme.ts         # Theme management
-│   ├── package.json         # Frontend dependencies
-│   └── vite.config.ts       # Vite configuration
-├── scripts/                 # Development and utility scripts
-│   ├── run_dev.sh           # Development mode
-│   ├── run_voice.sh         # Voice commands enabled
-│   ├── run_debug.sh         # Debug logging enabled
-│   ├── run_tests.sh         # Run test suite
-│   ├── test_gpu_build.sh    # Test GPU compilation
-│   └── package-windows.ps1  # Windows packaging
-├── src/bin/
-│   └── benchmark.rs         # Performance benchmarking tool
-└── tests/                   # Integration tests
-    ├── performance_tests.rs # Performance benchmarks
-    └── real_world_tests.rs  # Real-world usage tests
-└── docs/                    # Documentation
-    ├── DEVELOPMENT.md       # This file
-    ├── INSTALLATION.md      # Installation guide
-    ├── TESTING.md           # Testing procedures
-    ├── VOICE_COMMANDS.md    # Voice command reference
-    ├── organization.md      # Project organization
-    ├── plan.md              # Master development plan
-    ├── whisper-enhancement-plan.md # Whisper enhancement roadmap
-    ├── whisper-enhancement-summary.md # Implementation summary
-    ├── whisper-enhancement-test-report.md # Test coverage report
-    ├── gpu-acceleration-plan.md # GPU implementation plan
-    └── testing-summary.md   # Testing overview
+│   │   ├── App.svelte     # Main component
+│   │   ├── components/    # UI components
+│   │   └── lib/          # Utilities
+│   └── package.json      # Frontend dependencies
+├── scripts/              # Development scripts
+└── docs/                # Documentation
 ```
 
-## Recent Progress (January 2025)
+## Development Setup
 
-### Build System Fixes
-- ✅ Fixed npm dependency issues (@tauri-apps/api/core import error)
-- ✅ Updated Tauri configuration for proper frontend build paths
-- ✅ Resolved Rust compilation warnings
-- ✅ Verified Tauri 2.0 API compatibility
+### Prerequisites
 
-### Documentation Cleanup
-- ✅ Consolidated 18 documentation files into 9 well-organized files
-- ✅ Created comprehensive INSTALLATION.md with platform-specific instructions
-- ✅ Created unified TESTING.md for all platforms
-- ✅ Removed outdated and duplicate documentation
+1. **Rust**: 1.70+ (install via [rustup](https://rustup.rs/))
+2. **Node.js**: 18+ (for frontend)
+3. **Platform Tools**:
+   - Windows: Visual Studio Build Tools
+   - macOS: Xcode Command Line Tools
+   - Linux: gcc, pkg-config, webkit2gtk-4.0
 
-### Code Quality Improvements
-- ✅ Enhanced error handling with structured error types
-- ✅ Improved async patterns with proper resource cleanup
-- ✅ Better tokio task management
-- ✅ Fixed memory leaks in audio processing
-- ✅ Implemented graceful shutdown mechanisms
+### Initial Setup
 
-### Phase 0 Completion (January 2025)
-- ✅ **Voice Command Integration**
-  - Connected voice commands to transcription pipeline
-  - Fixed all failing voice command tests
-  - Real-time command execution during transcription
-  - Visual feedback in UI for command status
-- ✅ **Storage Implementation**
-  - Created SQLite storage module with rusqlite
-  - Implemented full-text search with FTS5
-  - Session-based transcript organization
-  - Export capabilities (Text, Markdown, JSON, CSV)
-  - Automatic transcript saving during recording
-  - Created StoragePlugin for enhanced features
+```bash
+# Clone repository
+git clone https://github.com/your-org/bestme.git
+cd bestme
 
-### Phase 0.5 Completion - Whisper Enhancement (January 2025)
-- ✅ **Voice Activity Detection (VAD)**
-  - Energy-based detection with adaptive thresholds
-  - Reduces processing by 50%+ during silence
-  - Real-time visualization component
-  - UI controls for threshold and timing
-- ✅ **Transcription Quality Improvements**
-  - Token-level confidence scoring
-  - Hallucination detection and filtering
-  - Prompt engineering with context
-  - Multi-pass processing strategies
-- ✅ **Custom Vocabulary System**
-  - Term boosting with configurable weights
-  - Category-based organization
-  - CSV import/export functionality
-  - Full-featured management UI
-- ✅ **Real-time Optimization**
-  - Streaming pipeline with chunked processing
-  - Partial result generation
-  - Word-level timestamp reconstruction
-  - Latency tracking and reporting
-- ✅ **Comprehensive Testing**
-  - Unit tests for all new features
-  - Integration tests for streaming
-  - Test runner scripts
-  - Complete documentation
+# Install Rust dependencies
+cargo build
 
-### Phase 1.5 Completion - GPU Acceleration (January 2025)
-- ✅ **Multi-Backend GPU Support**
-  - CUDA support for NVIDIA GPUs (RTX 3080, etc.)
-  - Metal support for Apple Silicon
-  - ROCm support for AMD GPUs (RX 6000/7000)
-  - Vulkan fallback for Intel Arc and others
-- ✅ **GPU Infrastructure**
-  - Smart GPU detection and selection
-  - Memory management with VRAM monitoring
-  - Automatic fallback to CPU when needed
-  - GPU configuration UI component
-- ✅ **Performance Achievement**
-  - RTF < 0.5x for most models on consumer GPUs
-  - Batch processing support
-  - FP16 precision option
-  - Dynamic model loading
-- ✅ **Testing & Benchmarking**
-  - Comprehensive GPU integration tests
-  - Performance benchmarking tool
-  - Real-world usage tests
-  - Platform-specific testing procedures
+# Install frontend dependencies
+cd ui
+npm install
+cd ..
 
-## What's Left to Build
+# Install Tauri CLI
+cargo install tauri-cli
+```
 
-### 1. Text Injection System (Phase 1) ✅ COMPLETED
-- ✅ **Platform-Specific Implementation**
-  - ✅ Windows: SendInput API for keyboard simulation
-  - ✅ macOS: Core Graphics for key events  
-  - ✅ Linux: X11/Wayland support
-- ✅ **Context Detection**
-  - ✅ Active window detection
-  - ✅ Application profiles
-  - ✅ Smart mode selection
-- ✅ **Injection Modes**
-  - ✅ Type mode (character by character)
-  - ✅ Paste mode (via clipboard)
-  - ✅ Direct mode (application-specific)
+### Running Development Mode
 
-### 2. Whisper GPU Acceleration ✅ COMPLETED
-- ✅ **CUDA Support**
-  - ✅ Integrated whisper-rs CUDA features
-  - ✅ Dynamic backend selection
-  - ✅ Performance benchmarking
-- ✅ **Metal Support (macOS)**
-  - ✅ Metal integration via whisper-rs
-  - ✅ Optimized for Apple Silicon
-- ✅ **ROCm Support (AMD)**
-  - ✅ HIP/ROCm backend for AMD GPUs
-  - ✅ Support for RX 6000/7000 series
-- ✅ **Vulkan Support**
-  - ✅ Cross-platform GPU fallback
-  - ✅ Intel Arc GPU support
+```bash
+# Run with hot-reload
+cargo tauri dev
 
-### 3. AI Integration (Phase 2) ✅ COMPLETED
-- ✅ **Local AI Setup**
-  - ✅ ONNX Runtime integration with GPU support
-  - ✅ Grammar and punctuation enhancement
-  - ✅ Intent detection with confidence scoring
-  - ✅ Model quantization (INT8, FP16)
-- ✅ **Cloud AI Integration**
-  - ✅ OpenRouter, Requesty, OpenAI clients
-  - ✅ Advanced features (summarization, translation)
-  - ✅ Privacy controls and PII anonymization
-  - ✅ Multi-turn conversation support
-- ✅ **Additional AI Features**
-  - ✅ AI-powered voice commands
-  - ✅ Streaming inference
-  - ✅ Batch processing
-  - ✅ Telemetry and monitoring
+# With debug logging
+RUST_LOG=debug cargo tauri dev
 
-### 4. System Integration Plugins
-- [ ] **Global Hotkeys**
-  - [ ] Implement cross-platform hotkey registration
-  - [ ] Create hotkey configuration UI
-  - [ ] Add default hotkey presets
-- [ ] **Clipboard Integration**
-  - [ ] Enhance clipboard operations beyond basic copy
-  - [ ] Add clipboard history
-  - [ ] Implement smart paste with formatting
-- [ ] **Application Integration**
-  - [ ] Direct text insertion into active applications
-  - [ ] Support for common office applications
-  - [ ] Browser extension for web-based text input
+# Run specific features
+cargo tauri dev -- --features "gpu_acceleration"
+```
 
-### 5. Advanced Features
-- [ ] **Speaker Diarization** 🎯 Near-term Priority
-  - [ ] Distinguish between multiple speakers
-  - [ ] Label speakers in transcripts
-  - [ ] Create speaker profiles
-  - [ ] Integrate with pyannote-audio
-- [ ] **Meeting Intelligence**
-  - [ ] Automatic meeting summaries
-  - [ ] Action item extraction
-  - [ ] Meeting analytics
-  - [ ] Integration with calendar apps
-- [ ] **Enhanced Export**
-  - [ ] Export to various document formats (PDF, DOCX)
-  - [ ] Batch export functionality
-  - [ ] Template-based export
-  - [ ] Export with confidence scores
-- [ ] **Real-time Translation** 🎯 Near-term Priority
-  - [ ] Live translation using Whisper
-  - [ ] Subtitle generation
-  - [ ] Multi-language UI support
-  - [ ] Language detection and switching
+## Building & Testing
 
-### 6. Platform-Specific Polish
-- [ ] **Windows**
-  - [ ] Windows 11 style refinements
-  - [ ] Microsoft Store submission preparation
-  - [ ] Windows-specific keyboard shortcuts
-- [ ] **macOS**
-  - [ ] macOS native menu bar
-  - [ ] Touch Bar support (if applicable)
-  - [ ] Mac App Store preparation
-- [ ] **Linux**
-  - [ ] Desktop environment specific integrations
-  - [ ] Flatpak/Snap packaging
-  - [ ] Wayland support optimization
+### Testing Strategy
 
-### 7. Performance & Optimization
-- [ ] **Memory Optimization**
-  - [ ] Reduce baseline memory usage below 200MB
-  - [ ] Optimize model loading/unloading
-  - [ ] Implement memory profiling
-- [ ] **Latency Reduction**
-  - [ ] Achieve < 200ms transcription latency
-  - [ ] Optimize audio pipeline
-  - [ ] Implement predictive buffering
-- [ ] **Battery Optimization**
-  - [ ] Reduce CPU usage during idle
-  - [ ] Implement power-aware modes
-  - [ ] Add battery usage monitoring
+#### Unit Tests
+```bash
+# Run all Rust tests
+cargo test
 
-### 8. Distribution & Updates
-- [ ] **Auto-Update System**
-  - [ ] Implement Tauri updater
-  - [ ] Create update UI
-  - [ ] Set up update server infrastructure
-- [ ] **Installers**
-  - [ ] Create signed installers for all platforms
-  - [ ] Implement silent install options
-  - [ ] Add uninstaller with cleanup
-- [ ] **Analytics & Telemetry**
-  - [ ] Implement privacy-respecting analytics
-  - [ ] Create opt-in telemetry
-  - [ ] Build usage dashboard
+# Run specific module tests
+cargo test audio::
+cargo test ai::
 
-## Development Priorities
+# Run with output
+cargo test -- --nocapture
+```
 
-### Phase 2 - AI Integration ✅ COMPLETED (January 2025)
-Successfully implemented comprehensive AI system with:
-- **Local AI**: ONNX Runtime integration, model management, grammar correction
-- **Cloud AI**: OpenRouter, Requesty, OpenAI clients with privacy controls
-- **Security**: OS-native keychain for API keys, PII anonymization
-- **UI Integration**: Complete settings panel with model download
-- **Testing**: Comprehensive test suite with mocks and integration tests
+#### Integration Tests
+```bash
+# Run integration tests
+cargo test --test '*' --features integration-tests
 
-### Phase 2.5 - Model Integration ✅ COMPLETED (January 2025)
-Successfully built real model support:
-- ✅ **Model Registry**: Complete metadata system with HuggingFace integration
-- ✅ **Download Manager**: Async downloads with progress tracking
-- ✅ **Model Service**: High-level API for model management
-- ✅ **Pre-configured Models**: Phi-3-mini, Llama-3.2, Grammar-T5
-- ✅ **Compilation Issues**: Fixed GPU module and dependency conflicts
-- ✅ **ONNX Runtime**: Full implementation with tokenization and inference
-- ✅ **Model Conversion**: Python pipeline for HuggingFace → ONNX conversion
-- ✅ **GPU Integration**: Smart GPU detection and backend selection
-- ✅ **Model Optimization**: Automatic optimization and quantization
-- ✅ **Memory Management**: VRAM tracking and allocation
+# UI tests
+cd ui && npm test
+```
 
-### Phase 3 - Advanced AI Features ✅ COMPLETED (January 2025)
-Successfully implemented advanced AI optimization and processing features:
+#### Coverage
+```bash
+# Generate coverage report
+cargo tarpaulin --out Html
 
-1. **Streaming Inference** ✅
-   - Real-time text enhancement with <300ms buffering
-   - Predictive text suggestions
-   - Context-aware processing
-   - Async streaming pipeline
+# Check coverage percentage
+cargo tarpaulin --print-summary
+```
 
-2. **Batch Processing** ✅
-   - Parallel processing of multiple text segments
-   - Smart batching by text length similarity
-   - Configurable batch sizes and parallelism
-   - Stream processing support
+### Building for Production
 
-3. **Model Quantization** ✅
-   - Dynamic INT8 quantization support
-   - Static INT8 with calibration
-   - FP16 for GPU inference
-   - Python-based quantization pipeline
-   - 30-75% model size reduction
+```bash
+# Build optimized binary
+cargo tauri build
 
-4. **Model Warmup & Caching** ✅
-   - Automatic model warmup on load
-   - LRU cache for inference results
-   - Common phrase precomputation
-   - Cache hit/miss tracking
+# Platform-specific builds
+cargo tauri build --target x86_64-pc-windows-msvc
+cargo tauri build --target x86_64-apple-darwin
+cargo tauri build --target x86_64-unknown-linux-gnu
+```
 
-5. **Performance Benchmarking** ✅
-   - Comprehensive benchmark suite
-   - Multi-format export (JSON, CSV, Markdown, HTML)
-   - Real-time performance tracking
-   - Model comparison tools
-   - Latency percentiles (P50, P90, P95, P99)
+### Code Quality
 
-### Phase 4 - AI Infrastructure & Resilience ✅ COMPLETED (January 2025)
-Successfully implemented remaining AI infrastructure components:
+```bash
+# Format code
+cargo fmt
 
-1. **Telemetry & Monitoring** ✅
-   - OpenTelemetry integration for metrics and tracing
-   - Model-specific metrics collectors
-   - System-wide performance tracking
-   - Multiple export formats (JSON, Prometheus, OTLP)
-   - Real-time performance alerts
+# Lint with clippy
+cargo clippy -- -D warnings
 
-2. **Conversation Context Management** ✅
-   - Multi-turn conversation support
-   - In-memory and persistent storage
-   - Context compression and expiration
-   - Conversation forking and merging
-   - Memory-augmented context with different memory types
+# Fix common issues
+cargo fix --lib -p bestme
 
-3. **Prompt Template System** ✅
-   - Pre-built templates (default, professional, technical, creative, educational)
-   - Variable substitution system
-   - Template validation and application
-   - Context building with templates
+# Check for security issues
+cargo audit
+```
 
-4. **Comprehensive Testing** ✅
-   - Unit tests for all AI components
-   - Integration tests for end-to-end workflows
-   - Mock models for testing
-   - Stress tests for concurrent operations
-   - Test helpers and data generators
+## Key Components
 
-5. **Error Recovery & Resilience** ✅
-   - Multi-level fallback chain (GPU → CPU → Cache → Error)
-   - Circuit breaker with automatic recovery
-   - Resource exhaustion handling
-   - Graceful degradation strategies
-   - Performance-based model switching
-   - Telemetry integration for failure tracking
+### Audio System
 
-## Current Development Phase 🎯
+The audio system handles capture and transcription:
 
-### Immediate Priority: Test & Polish (This Week)
-**Before adding new features, we need to ensure everything works perfectly:**
+```rust
+// Core components
+src/audio/
+├── capture.rs          # Audio device management
+├── transcribe.rs       # Whisper integration
+├── streaming_transcribe.rs # Real-time processing
+├── voice_commands.rs   # Command detection
+└── ai_voice_commands.rs # AI-enhanced commands
+```
 
-1. **Comprehensive Testing**
-   - [ ] Test all transcription modes and models
-   - [ ] Verify text injection across applications
-   - [ ] Test AI enhancement features
-   - [ ] Validate voice commands (rule-based and AI)
-   - [ ] Check GPU acceleration on different hardware
-   - [ ] Verify storage and search functionality
-   
-2. **Bug Fixes & Optimization**
-   - [ ] Address any issues found in testing
-   - [ ] Optimize performance bottlenecks
-   - [ ] Improve error handling
-   - [ ] Polish UI/UX rough edges
-   
-3. **Documentation**
-   - [ ] Create user guide for current features
-   - [ ] Document AI capabilities
-   - [ ] Add example workflows
-   - [ ] Create demo videos
+Key features:
+- Real-time audio capture with VAD
+- GPU-accelerated Whisper transcription
+- Streaming pipeline with <300ms latency
+- Multi-device support
 
-### Phase 2.5: Core Experience Enhancement (Next 2-3 weeks)
-**Make BestMe magical to use:**
+### AI System
 
-1. **Universal Text Injection Enhancement**
-   - Smart context detection (IDE vs terminal vs browser)
-   - Advanced injection modes (code, markdown, rich text)
-   - Performance improvements and error recovery
-   
-2. **Application Context Bridge**
-   - Active application monitoring
-   - Content type understanding
-   - Smart behaviors per application
-   - Workflow pattern detection
-   
-3. **Conversation Memory & Search**
-   - Semantic search with embeddings
-   - Natural language queries
-   - Time-based retrieval
-   - Related content suggestions
+See [AI-GUIDE.md](./AI-GUIDE.md) for comprehensive AI documentation.
 
-### Phase 3: Intelligent Assistant Features (Next 3-4 weeks)
-**Transform into a true AI assistant:**
+Key modules:
+- **Local inference**: ONNX Runtime with GPU support
+- **Cloud providers**: OpenRouter, OpenAI, Requesty
+- **Model management**: Download, update, custom models
+- **Performance**: Caching, quantization, batch processing
 
-1. **Smart Command Execution**
-   - Enhanced NLU with context
-   - External app integrations (email, calendar, tasks)
-   - Workflow automation
-   - Multi-step command sequences
-   
-2. **Ambient Intelligence**
-   - Privacy-first ambient listening
-   - Automatic note-taking
-   - Proactive suggestions
-   - Pattern learning
+### Configuration System
 
-### Phase 4: Professional Features (Later)
-- Industry-specific support (legal, medical, dev)
-- Plugin system architecture
-- Advanced analytics
+```rust
+// Configuration structure
+pub struct Config {
+    pub ui: UIConfig,
+    pub audio: AudioConfig,
+    pub transcription: TranscriptionConfig,
+    pub ai: AIConfig,
+    pub storage: StorageConfig,
+}
+```
 
-### Phase 5: Polish & Distribution (Final)
-- Performance optimization
-- App store packages
-- Auto-update system
-- Comprehensive documentation
+Configuration locations:
+- Windows: `%APPDATA%\bestme\config.json`
+- macOS: `~/Library/Application Support/bestme/config.json`
+- Linux: `~/.config/bestme/config.json`
 
-## Getting Started for New Developers
+## Voice Commands
 
-1. **Setup Development Environment**
+### Architecture
+
+```
+Voice Input → Whisper → Command Parser → Action Executor
+                ↓
+         AI Enhancement (optional)
+```
+
+### Command Format
+
+```json
+{
+  "prefix": ["computer", "assistant"],
+  "commands": {
+    "punctuation": {
+      "period": ".",
+      "comma": ",",
+      "question": "?"
+    },
+    "actions": {
+      "new line": "\n",
+      "new paragraph": "\n\n"
+    }
+  }
+}
+```
+
+### AI Voice Commands
+
+Enhanced commands with context understanding:
+
+```rust
+// Example: "computer, make this formal"
+let enhanced = ai_commander.process_command(
+    "make this formal",
+    "hey whats up",
+    CommandContext { /* ... */ }
+).await?;
+// Result: "Hello, how are you?"
+```
+
+## Platform-Specific Notes
+
+### Windows
+
+- **Audio**: WASAPI for low-latency capture
+- **GPU**: DirectML for broad compatibility
+- **Packaging**: MSI installer with auto-update
+
+### macOS
+
+- **Audio**: CoreAudio framework
+- **GPU**: Metal Performance Shaders
+- **Security**: Notarization required
+- **Permissions**: Microphone access
+
+### Linux
+
+- **Audio**: PulseAudio/ALSA
+- **GPU**: CUDA on NVIDIA systems
+- **Desktop**: Works with X11 and Wayland
+- **Packaging**: AppImage, deb, rpm
+
+## Performance & Optimization
+
+### Benchmarking
+
+```bash
+# Run benchmarks
+cargo bench
+
+# AI model benchmarks
+cargo test --release -- --ignored benchmark_
+
+# Profile with flamegraph
+cargo flamegraph --bin bestme
+```
+
+### Optimization Tips
+
+1. **Audio Pipeline**
+   - Use appropriate buffer sizes (512-2048 samples)
+   - Enable GPU for Whisper when available
+   - Use streaming mode for real-time
+
+2. **AI Performance**
+   - Quantize models (INT8/FP16)
+   - Enable batch processing
+   - Use model caching
+   - Implement warmup
+
+3. **Memory Management**
+   - Unload unused models
+   - Clear transcription buffers
+   - Use streaming iterators
+
+### Performance Targets
+
+- Audio latency: <50ms
+- Transcription: <300ms for 5s audio
+- AI inference: <50ms for text enhancement
+- Memory usage: <500MB base, <4GB with models
+
+## Debugging
+
+### Logging
+
+```bash
+# Set log level
+export RUST_LOG=debug
+export RUST_LOG=bestme=debug,tauri=info
+
+# Log to file
+export RUST_LOG_FILE=/tmp/bestme.log
+```
+
+### Common Issues
+
+1. **Audio Device Issues**
    ```bash
-   # Install prerequisites
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-   # Install Node.js from nodejs.org
-
-   # Clone and setup
-   git clone https://github.com/yourusername/bestme.git
-   cd bestme
-   cd ui && npm install && cd ..
-
-   # Run development version
-   cargo tauri dev
+   # List devices
+   cargo run -- --list-audio-devices
+   
+   # Test specific device
+   cargo run -- --audio-device "Microphone Name"
    ```
 
-2. **Key Development Commands**
+2. **Model Loading**
    ```bash
-   # Run with voice commands
-   ./scripts/run_voice.sh
-
-   # Run with debug logging
-   ./scripts/run_debug.sh
-
-   # Build for production
-   cargo tauri build
+   # Verify model path
+   cargo run -- --verify-models
+   
+   # Clear model cache
+   rm -rf ~/.local/share/bestme/models/
    ```
 
-3. **Testing Your Changes**
-   - Test on all platforms if possible
-   - Run the test scripts in `scripts/`
-   - Check the logs for errors
-   - Verify UI responsiveness
-
-## Contributing Guidelines
-
-1. **Code Style**
-   - Follow Rust conventions and use `cargo fmt`
-   - Use TypeScript for frontend code
-   - Add appropriate error handling
-   - Document complex logic
-
-2. **Testing**
-   - Add tests for new features
-   - Ensure existing tests pass
-   - Test on multiple platforms
-
-3. **Documentation**
-   - Update relevant docs when adding features
-   - Add inline code comments for complex logic
-   - Update this file with progress
-
-4. **Pull Requests**
-   - Create feature branches
-   - Write clear commit messages
-   - Include before/after screenshots for UI changes
-   - Reference related issues
-
-## Testing Guide for Current Build
-
-### What to Test:
-1. **Core Transcription**
-   - Different Whisper models (tiny to large)
-   - Multiple languages
-   - VAD effectiveness
-   - Custom vocabulary impact
+3. **GPU Detection**
+   ```bash
+   # Check GPU status
+   cargo run -- --gpu-info
    
-2. **Text Injection**
-   - Type in various applications
-   - Special characters and formatting
-   - Performance under rapid dictation
+   # Force CPU mode
+   cargo run -- --cpu-only
+   ```
+
+### Debug Tools
+
+- **Tauri DevTools**: Ctrl+Shift+I in app
+- **Performance Monitor**: Built-in metrics view
+- **Audio Visualizer**: Real-time waveform
+- **Command History**: Voice command debugging
+
+## Release Process
+
+### Version Management
+
+Follow semantic versioning:
+- MAJOR: Breaking changes
+- MINOR: New features
+- PATCH: Bug fixes
+
+### Release Checklist
+
+1. **Update Version**
+   ```toml
+   # Cargo.toml
+   version = "X.Y.Z"
    
-3. **AI Features**
-   - Grammar correction accuracy
-   - Summarization quality
-   - Translation accuracy
-   - AI voice commands
+   # tauri.conf.json
+   "package": { "version": "X.Y.Z" }
    
-4. **Voice Commands**
-   - Basic commands (delete, undo)
-   - Natural language understanding
-   - Command recognition accuracy
-   
-5. **Storage & Search**
-   - Transcript saving and retrieval
-   - Search functionality
-   - Export formats
-   
-6. **GPU Acceleration**
-   - GPU detection and selection
-   - Performance improvement
-   - Fallback behavior
+   # package.json
+   "version": "X.Y.Z"
+   ```
 
-## Known Issues
+2. **Run Tests**
+   ```bash
+   ./scripts/pre-release-check.sh
+   ```
 
-1. **Audio Issues**
-   - Some USB microphones may require reconnection after sleep
-   - Bluetooth audio devices may have higher latency
-   - VAD may need threshold adjustment for different microphones
+3. **Build Release**
+   ```bash
+   cargo tauri build --release
+   ```
 
-2. **Platform-Specific**
-   - Linux: System tray may not work on all desktop environments
-   - Windows: May require admin rights for global hotkeys
-   - macOS: First launch may show security prompt
+4. **Platform Testing**
+   - Test on Windows 10/11
+   - Test on macOS 12+
+   - Test on Ubuntu 20.04+
 
-3. **Performance**
-   - Large Whisper models may be slow on older hardware
-   - Memory usage increases with longer sessions
-   - Multi-pass processing increases latency
-   - Custom vocabulary with many terms may impact startup time
+5. **Create Release**
+   - Tag version: `git tag v.X.Y.Z`
+   - Generate changelog
+   - Upload artifacts
+   - Update documentation
 
-4. **AI-Specific**
-   - AI voice commands need connection to AI provider
-   - Model downloads can be large (100MB-1GB)
-   - First inference may be slow (model loading)
+### Continuous Integration
 
-## Resources
+GitHub Actions workflow:
+```yaml
+- Build on: Windows, macOS, Linux
+- Run tests
+- Generate artifacts
+- Create draft release
+```
 
-- [Tauri 2.0 Documentation](https://tauri.app/)
-- [Whisper Model Information](https://github.com/openai/whisper)
-- [Project Repository](https://github.com/yourusername/bestme)
-- [Issue Tracker](https://github.com/yourusername/bestme/issues)
+## Contributing
 
-## Contact
+### Code Style
 
-For questions or contributions, please open an issue on GitHub or contact the development team.
+- Follow Rust formatting (`cargo fmt`)
+- Use clippy suggestions
+- Write unit tests for new features
+- Document public APIs
+- Update relevant documentation
+
+### Pull Request Process
+
+1. Create feature branch
+2. Write/update tests
+3. Update documentation
+4. Run full test suite
+5. Submit PR with description
+6. Address review feedback
+
+### Development Philosophy
+
+- **No shortcuts**: Implement features properly
+- **Test everything**: Maintain >80% coverage
+- **Performance matters**: This is real-time software
+- **Cross-platform**: Must work on all platforms
+- **Privacy first**: All processing local by default
+
+---
+
+For specific component details, refer to:
+- [AI-GUIDE.md](./AI-GUIDE.md) - AI system documentation
+- [CLAUDE.md](../CLAUDE.md) - Development context
+- Source code documentation in `/src/`

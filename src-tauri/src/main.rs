@@ -1,265 +1,1255 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+mod plugin;
+mod system_monitor;
+
+use log::{error, info, debug, warn};
 use parking_lot::Mutex;
-use tauri::{State, Manager};
+use std::sync::Arc;
 
-// Audio state for managing recording
-#[derive(Default)]
-struct AudioState {
-    is_recording: Arc<Mutex<bool>>,
+// Tauri 2.0 imports
+use tauri::{Manager, Listener};
+use tauri::AppHandle;
+use serde_json::Value as JsonValue;
+
+// Import from main bestme crate
+use bestme::audio::device::DeviceManager;
+use bestme::config::ConfigManager;
+use bestme::config::WhisperModelSize;
+use bestme::audio::voice_commands::VoiceCommandConfig as LibVoiceCommandConfig;
+use bestme::config::{Config, GeneralSettings, AudioSettings, SpeechSettings}; // Import specific structs
+
+// Import our custom plugins
+use plugin::{
+    AudioPlugin, 
+    AudioState, 
+    TranscribePlugin, 
+    TranscribeState,
+    voice_commands::{VoiceCommandPlugin, VoiceCommandState,
+        get_voice_commands_status, get_voice_commands_text, get_voice_commands_history,
+        update_text, apply_delete_operation, undo_operation, redo_operation,
+        get_ai_voice_settings, save_ai_voice_settings, process_ai_voice_command
+    },
+    storage::{StoragePlugin, 
+        list_saved_transcripts_db, get_saved_transcript_db, save_transcript_db, 
+        delete_saved_transcript_db, search_transcripts_db, export_transcripts_db
+    },
+    text_injection::{TextInjectionPlugin,
+        enable_text_injection, inject_text, get_active_window,
+        check_injection_permissions, request_injection_permissions,
+        update_injection_config, set_injection_mode
+    },
+    audio::{start_recording, stop_recording, get_level, is_recording},
+    transcribe::{
+        start_transcription, stop_transcription, get_transcription, is_transcribing,
+        clear_transcription, get_download_progress, download_model_command, is_model_downloaded,
+        is_voice_commands_enabled, set_voice_commands_enabled, update_whisper_params,
+        get_whisper_params, add_vocabulary_entry, remove_vocabulary_entry, search_vocabulary,
+        get_vocabulary_entries, import_vocabulary_csv, export_vocabulary_csv
+    }
+};
+
+use plugin::transcribe::SUPPORTED_LANGUAGES;
+
+// Import system monitor commands
+use system_monitor::{get_cpu_usage, get_memory_usage, get_online_status};
+
+// Import serde
+use serde::{Serialize, Deserialize};
+use std::fs;
+use std::path::{Path, PathBuf};
+use chrono::{DateTime, Utc, TimeZone};
+use uuid::Uuid;
+use reqwest::Client;
+use std::collections::VecDeque; // Using VecDeque might be slightly better for history
+use serde_json::json; // For creating JSON values manually if needed
+
+// Extension trait for DeviceManager to implement list_devices
+trait DeviceManagerExt {
+    fn list_devices(&self) -> Result<Vec<(String, String)>, String>;
 }
 
-fn main() {
-    // Initialize logger
-    env_logger::init();
-    
-    tauri::Builder::default()
-        .setup(|app| {
-            println!("BestMe is starting up...");
-            
-            // Initialize audio state
-            app.manage(AudioState::default());
-            
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            get_app_version,
-            get_config,
-            save_config,
-            get_cpu_usage,
-            get_memory_usage,
-            get_online_status,
-            list_audio_devices,
-            start_recording,
-            stop_recording,
-            start_transcription,
-            stop_transcription,
-            get_transcription_status,
-            save_transcription,
-            get_saved_transcriptions,
-            // Namespaced commands for UI
-            audio_start_recording,
-            audio_stop_recording,
-            transcribe_set_voice_commands_enabled,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-
-#[tauri::command]
-fn get_app_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
-}
-
-// Basic config structure for UI
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Config {
-    general: GeneralSettings,
-    audio: AudioSettings,
-    speech: SpeechSettings,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct GeneralSettings {
-    theme: String,
-    auto_start: bool,
-    show_in_system_tray: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AudioSettings {
-    device_name: Option<String>,
-    sample_rate: u32,
-    channels: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SpeechSettings {
-    language: String,
-    model_size: String,
-    translate_to_english: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralSettings {
-                theme: "dark".to_string(),
-                auto_start: false,
-                show_in_system_tray: true,
-            },
-            audio: AudioSettings {
-                device_name: None,
-                sample_rate: 16000,
-                channels: 1,
-            },
-            speech: SpeechSettings {
-                language: "auto".to_string(),
-                model_size: "base".to_string(),
-                translate_to_english: false,
-            },
-        }
+impl DeviceManagerExt for DeviceManager {
+    fn list_devices(&self) -> Result<Vec<(String, String)>, String> {
+        Ok(self.get_input_devices())
     }
 }
 
+// Commands that will be exposed to the frontend
 #[tauri::command]
-fn get_config() -> Config {
-    Config::default()
+async fn get_audio_devices(
+    device_manager: tauri::State<'_, Arc<Mutex<DeviceManager>>>
+) -> Result<Vec<(String, String)>, String> {
+    let device_manager = device_manager.inner();
+    let devices = device_manager.lock().list_devices()
+        .map_err(|e| e.to_string())?;
+    
+    Ok(devices)
 }
 
 #[tauri::command]
-fn save_config(_config: Config) -> Result<(), String> {
-    // Just return success for now
-    Ok(())
-}
-
-// System monitoring stubs
-#[tauri::command]
-fn get_cpu_usage() -> f32 {
-    0.0
-}
-
-#[tauri::command]
-fn get_memory_usage() -> f32 {
-    0.0
-}
-
-#[tauri::command]
-fn get_online_status() -> bool {
-    true
-}
-
-// Audio device stub
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AudioDevice {
-    name: String,
-    is_default: bool,
-}
-
-#[tauri::command]
-fn list_audio_devices() -> Vec<AudioDevice> {
+async fn get_whisper_models() -> Vec<String> {
+    // Add all the available Whisper models
     vec![
-        AudioDevice {
-            name: "Default Microphone".to_string(),
-            is_default: true,
-        }
+        "tiny".to_string(),
+        "base".to_string(),
+        "small".to_string(),
+        "medium".to_string(),
+        "large".to_string(),
     ]
 }
 
-// Recording stubs
 #[tauri::command]
-fn start_recording() -> Result<(), String> {
-    println!("Start recording requested");
-    Ok(())
+async fn get_model_download_info() -> Vec<serde_json::Value> {
+    use serde_json::json;
+    
+    vec![
+        json!({
+            "name": "tiny",
+            "size": "75 MB",
+            "description": "Fastest model, lower accuracy"
+        }),
+        json!({
+            "name": "base",
+            "size": "142 MB",
+            "description": "Fast with decent accuracy"
+        }),
+        json!({
+            "name": "small",
+            "size": "466 MB",
+            "description": "Good balance of speed and accuracy"
+        }),
+        json!({
+            "name": "medium",
+            "size": "1.5 GB",
+            "description": "High accuracy, slower processing"
+        }),
+        json!({
+            "name": "large",
+            "size": "3 GB",
+            "description": "Highest accuracy, slowest processing"
+        })
+    ]
 }
 
 #[tauri::command]
-fn stop_recording() -> Result<(), String> {
-    println!("Stop recording requested");
-    Ok(())
-}
-
-// Transcription commands
-#[tauri::command]
-fn start_transcription() -> Result<(), String> {
-    println!("Start transcription requested");
-    Ok(())
+async fn get_supported_languages() -> Vec<[String; 2]> {
+    use plugin::transcribe::SUPPORTED_LANGUAGES;
+    
+    SUPPORTED_LANGUAGES.iter()
+        .map(|&(code, name)| [code.to_string(), name.to_string()])
+        .collect()
 }
 
 #[tauri::command]
-fn stop_transcription() -> Result<(), String> {
-    println!("Stop transcription requested");
-    Ok(())
-}
+async fn save_all_settings(
+    device_name: Option<String>, // Allow null from frontend via Option<String>
+    model_name: String,
+    auto_transcribe: bool,
+    offline_mode: bool,
+    speech_settings: serde_json::Value, // Keep as JSON value for flexibility
+    config_manager: tauri::State<'_, Arc<Mutex<ConfigManager>>>
+) -> Result<(), String> {
+    info!("Saving settings...");
+    let config_manager_guard = config_manager.inner();
+    let mut config_manager = config_manager_guard.lock();
+    
+    // Get a mutable reference to the config
+    let config = config_manager.get_config_mut();
+    
+    // Update General Settings
+    config.general.auto_transcribe = auto_transcribe;
+    config.general.offline_mode = offline_mode;
+    
+    // Update Audio Device
+    // Handle empty string from frontend as None
+    config.audio.input_device = device_name.filter(|s| !s.is_empty()); 
+    
+    // Update Speech Settings
+    let speech = &mut config.audio.speech;
 
-#[tauri::command]
-fn get_transcription_status() -> Result<TranscriptionStatus, String> {
-    Ok(TranscriptionStatus {
-        is_running: false,
-        current_text: "".to_string(),
-        device_name: "Default Microphone".to_string(),
-    })
-}
-
-#[derive(Serialize)]
-struct TranscriptionStatus {
-    is_running: bool,
-    current_text: String,
-    device_name: String,
-}
-
-// Storage commands
-#[tauri::command]
-fn save_transcription(text: String, metadata: serde_json::Value) -> Result<String, String> {
-    println!("Save transcription requested: {} chars", text.len());
-    // Return a mock ID
-    Ok("mock-transcription-id-123".to_string())
-}
-
-#[tauri::command]
-fn get_saved_transcriptions() -> Result<Vec<SavedTranscription>, String> {
-    // Return mock data
-    Ok(vec![
-        SavedTranscription {
-            id: "1".to_string(),
-            text: "This is a test transcription".to_string(),
-            timestamp: 1234567890,
-            duration: 30,
-            device: "Default Microphone".to_string(),
+    // Update model size using the existing method in config.rs
+    if let Err(e) = speech.set_model_size_from_str(&model_name) {
+        warn!("Invalid model size provided '{}', defaulting to Small. Error: {}", model_name, e);
+        speech.model_size = WhisperModelSize::Small; // Default on error
+    } 
+    // The match statement below is now redundant due to set_model_size_from_str
+    /*
+    speech.model_size = match model_name.as_str() {
+        "tiny" => bestme::config::WhisperModelSize::Tiny,
+        "base" => bestme::config::WhisperModelSize::Base,
+        "small" => bestme::config::WhisperModelSize::Small,
+        "medium" => bestme::config::WhisperModelSize::Medium,
+        "large" => bestme::config::WhisperModelSize::Large,
+        _ => speech.model_size, // Keep existing if invalid
+    };
+    */
+    
+    // Update detailed speech settings from the JSON object
+    if let Some(speech_obj) = speech_settings.as_object() {
+        if let Some(language) = speech_obj.get("language").and_then(|v| v.as_str()) {
+            // Allow empty string or "auto"
+            speech.language = if language.is_empty() { "auto".to_string() } else { language.to_string() };
         }
-    ])
+        
+        if let Some(auto_punctuate) = speech_obj.get("auto_punctuate").and_then(|v| v.as_bool()) {
+            speech.auto_punctuate = auto_punctuate;
+        }
+        
+        if let Some(translate_to_english) = speech_obj.get("translate_to_english").and_then(|v| v.as_bool()) {
+            speech.translate_to_english = translate_to_english;
+        }
+        
+        // Keep other fields if needed
+        /*
+        if let Some(context_formatting) = speech_obj.get("context_formatting").and_then(|v| v.as_bool()) {
+            speech.context_formatting = context_formatting;
+        }
+        
+        if let Some(segment_duration) = speech_obj.get("segment_duration").and_then(|v| v.as_f64()) {
+            speech.segment_duration = segment_duration as f32;
+        }
+        
+        if let Some(buffer_size) = speech_obj.get("buffer_size").and_then(|v| v.as_u64()) {
+            speech.buffer_size = buffer_size as f32;
+        }
+        */
+    }
+
+    // Save the modified config
+    match config_manager.save() {
+        Ok(_) => {
+            info!("Settings saved successfully.");
+            // TODO: Potentially emit an event to notify other parts of the app about config changes
+            // app_handle.emit_all("config_updated", config.clone()).unwrap_or_default();
+            Ok(())
+        },
+        Err(e) => {
+            error!("Failed to save settings: {}", e);
+            Err(format!("Failed to save settings: {}", e))
+        },
+    }
 }
 
-#[derive(Serialize)]
-struct SavedTranscription {
+#[tauri::command]
+async fn get_settings(config_manager: tauri::State<'_, Arc<Mutex<ConfigManager>>>) -> Result<serde_json::Value, String> {
+    info!("Fetching settings...");
+    let config_manager_guard = config_manager.inner();
+    let config_manager = config_manager_guard.lock();
+    let config = config_manager.get_config();
+    
+    // Convert the Config struct to a serde_json::Value
+    // Serde should use the Display trait for WhisperModelSize when serializing enums to strings 
+    // within complex types if configured correctly (usually default for simple enums).
+    // If it serializes as { "model_size": "Small" } (enum variant name) instead of 
+    // { "model_size": "small" } (display trait), we might need a custom serializer or wrapper type.
+    match serde_json::to_value(config) {
+        Ok(mut value) => {
+            // Ensure model_size is lowercase string using Display trait implementation
+            if let Some(audio) = value.get_mut("audio") {
+                if let Some(speech) = audio.get_mut("speech") {
+                    if let Some(model_size_enum) = speech.get("model_size") {
+                        // Re-serialize just the model size using its Display trait
+                        // Note: This assumes the original serialization produced the enum variant name.
+                        // If `to_value(config)` already uses Display, this is redundant but safe.
+                        let model_size_str = config.audio.speech.model_size.to_string();
+                        speech["model_size"] = json!(model_size_str); 
+                    }
+                }
+            }
+            info!("Settings fetched successfully.");
+            Ok(value)
+        },
+        Err(e) => {
+            error!("Failed to serialize settings: {}", e);
+            Err(format!("Failed to serialize settings: {}", e))
+        },
+    }
+}
+
+#[tauri::command]
+async fn toggle_voice_commands(
+    enabled: bool,
+    state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
+) -> Result<(), String> {
+    // Don't hold the lock across await
+    if enabled {
+        let mut state_lock = state.inner().lock();
+        // Call the synchronous start method instead
+        state_lock.start().map_err(|e| e.to_string())
+    } else {
+        let mut state_lock = state.inner().lock();
+        // Call the synchronous stop method instead
+        state_lock.stop().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+async fn get_voice_command_settings(config_manager: tauri::State<'_, Arc<Mutex<ConfigManager>>>) -> Result<serde_json::Value, String> {
+    let config_manager = config_manager.inner().lock();
+    let voice_commands = &config_manager.get_config().audio.voice_commands;
+    
+    match serde_json::to_value(voice_commands) {
+        Ok(value) => Ok(value),
+        Err(e) => Err(format!("Failed to serialize voice command settings: {}", e)),
+    }
+}
+
+#[tauri::command]
+async fn save_voice_command_settings(
+    enabled: bool,
+    command_prefix: Option<String>,
+    require_prefix: bool,
+    sensitivity: f32,
+    config_manager: tauri::State<'_, Arc<Mutex<ConfigManager>>>,
+    voice_command_state: tauri::State<'_, Arc<Mutex<VoiceCommandState>>>
+) -> Result<(), String> {
+    // Update and save configuration
+    let voice_command_config = {
+        let mut config_manager = config_manager.inner().lock();
+        
+        // Create the voice command config using the local type
+        let mut voice_command_config = config_manager.get_config_mut().audio.voice_commands.clone();
+        voice_command_config.enabled = enabled;
+        
+        if let Some(prefix) = command_prefix {
+            voice_command_config.command_prefix = Some(prefix);
+        }
+        
+        voice_command_config.require_prefix = require_prefix;
+        voice_command_config.sensitivity = sensitivity;
+        
+        // Save the config to ConfigManager
+        config_manager.get_config_mut().audio.voice_commands = voice_command_config.clone();
+        
+        // Save the updated config
+        if let Err(e) = config_manager.save() {
+            return Err(format!("Failed to save voice command settings: {}", e));
+        }
+        
+        voice_command_config
+    };
+    
+    // Update the voice command state
+    {
+        let mut voice_command_state = voice_command_state.inner().lock();
+        // Convert from library VoiceCommandConfig to TauriVoiceCommandConfig
+        let tauri_config = plugin::voice_commands::TauriVoiceCommandConfig {
+            enabled: voice_command_config.enabled,
+            command_prefix: voice_command_config.command_prefix.clone(),
+            require_prefix: voice_command_config.require_prefix,
+            sensitivity: voice_command_config.sensitivity,
+            custom_commands: Vec::new(), // TODO: Convert custom commands
+            default_commands: true,
+        };
+        if let Err(e) = voice_command_state.initialize(tauri_config) {
+            return Err(format!("Failed to update voice command system: {}", e));
+        }
+    }
+    
+    // Start voice commands if enabled (must be outside the lock)
+    if enabled {
+        let mut voice_command_state = voice_command_state.inner().lock();
+        if let Err(e) = voice_command_state.start() {
+            return Err(format!("Failed to enable voice commands: {}", e));
+        }
+    } else {
+        let mut voice_command_state = voice_command_state.inner().lock();
+        if let Err(e) = voice_command_state.stop() {
+            return Err(format!("Failed to disable voice commands: {}", e));
+        }
+    }
+    
+    Ok(())
+}
+
+// Struct for deserializing the content of a saved transcript file
+#[derive(Serialize, Deserialize, Debug)]
+struct SavedTranscriptFileContent {
+    title: String,
+    timestamp_ms: i64,
+    content: String, // Keep content field for structure, though not read in list command
+}
+
+// Struct for the items sent to the frontend list
+#[derive(Serialize, Deserialize, Debug, Clone)] // Added Clone
+pub struct SavedTranscriptListItem {
     id: String,
+    title: String,
+    date: String, // ISO 8601 format string
+}
+
+// --- Chat Structs ---
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ChatMessage {
+    sender: String, // "user" or "ai"
     text: String,
-    timestamp: i64,
-    duration: i64,
-    device: String,
+    timestamp_ms: i64,
 }
 
-// Namespaced audio commands for UI compatibility
-#[tauri::command(rename_all = "snake_case")]
-async fn audio_start_recording(
-    device_name: Option<String>,
-    sample_rate: Option<u32>,
-    state: State<'_, AudioState>,
+#[derive(Serialize, Deserialize, Debug)]
+struct ChatSessionFileContent {
+    id: String, // Session UUID
+    title: String, // Maybe first user message or user-defined?
+    created_timestamp_ms: i64,
+    messages: Vec<ChatMessage>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ChatSessionListItem {
+    id: String,
+    title: String,
+    date: String, // ISO 8601 format string of created_timestamp_ms
+}
+
+// --- Structs for OpenAI Compatible API ---
+#[derive(Serialize, Debug, Clone)] // Only need Serialize for request
+pub struct OpenAiChatMessage {
+    role: String, // "user", "assistant", or "system"
+    content: String,
+}
+
+#[derive(Serialize, Debug)] // Only need Serialize for request
+struct OpenAiChatCompletionRequest {
+    model: String,
+    messages: Vec<OpenAiChatMessage>,
+    // Add other optional fields like temperature, max_tokens if needed
+}
+
+// Need Deserialize for response
+#[derive(Deserialize, Debug)] 
+struct OpenAiChatCompletionResponse {
+    choices: Vec<OpenAiChatCompletionChoice>,
+    // Add other fields if needed (e.g., usage)
+}
+
+#[derive(Deserialize, Debug)]
+struct OpenAiChatCompletionChoice {
+    message: OpenAiChatMessageResponse,
+    // Add other fields if needed (e.g., finish_reason)
+}
+
+#[derive(Deserialize, Debug, Clone)] // Clone needed for ai_chat_message
+struct OpenAiChatMessageResponse {
+    role: String,
+    content: String,
+}
+
+#[tauri::command]
+async fn list_saved_transcripts(
+    app_handle: AppHandle
+) -> Result<Vec<SavedTranscriptListItem>, String> {
+    info!("Listing saved transcripts");
+
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
+    let transcripts_dir = data_dir.join("saved_transcripts");
+
+    // Ensure the directory exists
+    fs::create_dir_all(&transcripts_dir)
+        .map_err(|e| format!("Failed to create transcripts directory: {}", e))?;
+
+    let mut items = Vec::new();
+
+    match fs::read_dir(&transcripts_dir) {
+        Ok(entries) => {
+            for entry_result in entries {
+                match entry_result {
+                    Ok(entry) => {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
+                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                let id = stem.to_string();
+                                match fs::read_to_string(&path) {
+                                    Ok(content_str) => {
+                                        match serde_json::from_str::<SavedTranscriptFileContent>(&content_str) {
+                                            Ok(file_content) => {
+                                                // Convert timestamp_ms to DateTime<Utc>
+                                                let timestamp = Utc.timestamp_millis_opt(file_content.timestamp_ms).single()
+                                                    .unwrap_or_else(|| Utc::now()); // Fallback to now if timestamp is invalid
+                                                
+                                                items.push(SavedTranscriptListItem {
+                                                    id,
+                                                    title: file_content.title,
+                                                    date: timestamp.to_rfc3339(), // Format as ISO string
+                                                });
+                                            }
+                                            Err(e) => {
+                                                warn!("Failed to parse JSON in file {}: {}", path.display(), e);
+                                                // Optionally: Try to get metadata date as fallback?
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to read file {}: {}", path.display(), e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to read directory entry: {}", e);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to read transcripts directory '{}': {}", transcripts_dir.display(), e);
+            // Return empty list or error?
+            return Err(format!("Failed to read transcripts directory: {}", e));
+        }
+    }
+
+    // Sort items by date, newest first
+    items.sort_by(|a, b| b.date.cmp(&a.date));
+
+    Ok(items)
+}
+
+#[tauri::command]
+async fn save_transcript(
+    title: String,
+    content: String,
+    app_handle: AppHandle
 ) -> Result<(), String> {
-    println!("Audio start recording requested - device: {:?}, sample_rate: {:?}", device_name, sample_rate);
+    info!("Saving transcript: {}", title);
+
+    // Generate unique ID
+    let id = Uuid::new_v4().to_string();
+    let timestamp_ms = Utc::now().timestamp_millis();
+
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
+    let transcripts_dir = data_dir.join("saved_transcripts");
+
+    // Ensure the directory exists
+    fs::create_dir_all(&transcripts_dir)
+        .map_err(|e| format!("Failed to create transcripts directory: {}", e))?;
+
+    // Create file content struct
+    let file_content = SavedTranscriptFileContent {
+        title: title.clone(),
+        timestamp_ms,
+        content,
+    };
+
+    // Serialize to JSON
+    let json_content = serde_json::to_string_pretty(&file_content)
+        .map_err(|e| format!("Failed to serialize transcript content: {}", e))?;
+
+    // Determine file path
+    let file_path = transcripts_dir.join(format!("{}.json", id));
+
+    // Write to file
+    fs::write(&file_path, json_content)
+        .map_err(|e| format!("Failed to write transcript file '{}': {}", file_path.display(), e))?;
+
+    info!("Transcript saved successfully: {}", file_path.display());
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_saved_transcript(id: String, app_handle: AppHandle) -> Result<SavedTranscriptFileContent, String> {
+    info!("Getting saved transcript: {}", id);
+
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
+    let transcripts_dir = data_dir.join("saved_transcripts");
+    let file_path = transcripts_dir.join(format!("{}.json", id));
+
+    if !file_path.exists() {
+        return Err(format!("Transcript file not found: {}", id));
+    }
+
+    // Read the file content
+    let content_str = fs::read_to_string(&file_path)
+        .map_err(|e| format!("Failed to read transcript file '{}': {}", file_path.display(), e))?;
+
+    // Deserialize JSON
+    let file_content: SavedTranscriptFileContent = serde_json::from_str(&content_str)
+        .map_err(|e| format!("Failed to parse transcript content for ID '{}': {}", id, e))?;
+
+    Ok(file_content)
+}
+
+#[tauri::command]
+async fn delete_saved_transcript(id: String, app_handle: AppHandle) -> Result<(), String> {
+    info!("Deleting saved transcript: {}", id);
+
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
+    let transcripts_dir = data_dir.join("saved_transcripts");
+    let file_path = transcripts_dir.join(format!("{}.json", id));
+
+    if !file_path.exists() {
+        // Arguably, not finding it means it's already deleted, so maybe Ok(())?
+        // But returning an error might be clearer if the UI expected it to exist.
+        return Err(format!("Transcript file not found for deletion: {}", id));
+    }
+
+    // Attempt to delete the file
+    fs::remove_file(&file_path)
+        .map_err(|e| format!("Failed to delete transcript file '{}': {}", file_path.display(), e))?;
+
+    info!("Transcript deleted successfully: {}", id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_chat_sessions(app_handle: AppHandle) -> Result<Vec<ChatSessionListItem>, String> {
+    info!("Listing chat sessions");
+
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
+    let sessions_dir = data_dir.join("chat_sessions");
+
+    // Ensure the directory exists
+    fs::create_dir_all(&sessions_dir)
+        .map_err(|e| format!("Failed to create chat sessions directory: {}", e))?;
+
+    let mut items = Vec::new();
+
+    match fs::read_dir(&sessions_dir) {
+        Ok(entries) => {
+            for entry_result in entries {
+                match entry_result {
+                    Ok(entry) => {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
+                            // Optimization: Could try to read only metadata, but reading full file is simpler for now
+                            match fs::read_to_string(&path) {
+                                Ok(content_str) => {
+                                    match serde_json::from_str::<ChatSessionFileContent>(&content_str) {
+                                        Ok(session_content) => {
+                                            let timestamp = Utc.timestamp_millis_opt(session_content.created_timestamp_ms).single()
+                                                .unwrap_or_else(Utc::now);
+                                            
+                                            items.push(ChatSessionListItem {
+                                                id: session_content.id,
+                                                title: session_content.title, // Use title stored in file
+                                                date: timestamp.to_rfc3339(),
+                                            });
+                                        }
+                                        Err(e) => {
+                                            warn!("Failed to parse JSON in chat session file {}: {}", path.display(), e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Failed to read chat session file {}: {}", path.display(), e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to read directory entry in chat_sessions: {}", e);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to read chat sessions directory '{}': {}", sessions_dir.display(), e);
+            return Err(format!("Failed to read chat sessions directory: {}", e));
+        }
+    }
+
+    // Sort items by date, newest first
+    items.sort_by(|a, b| b.date.cmp(&a.date));
+
+    Ok(items)
+}
+
+#[tauri::command]
+async fn get_chat_session(id: String, app_handle: AppHandle) -> Result<ChatSessionFileContent, String> {
+    info!("Getting chat session: {}", id);
+
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
+    let sessions_dir = data_dir.join("chat_sessions");
+    let file_path = sessions_dir.join(format!("{}.json", id));
+
+    if !file_path.exists() {
+        return Err(format!("Chat session file not found: {}", id));
+    }
+
+    // Read the file content
+    let content_str = fs::read_to_string(&file_path)
+        .map_err(|e| format!("Failed to read chat session file '{}': {}", file_path.display(), e))?;
+
+    // Deserialize JSON
+    let session_content: ChatSessionFileContent = serde_json::from_str(&content_str)
+        .map_err(|e| format!("Failed to parse chat session content for ID '{}': {}", id, e))?;
+
+    Ok(session_content)
+}
+
+#[tauri::command]
+async fn send_chat_message(
+    session_id: Option<String>,
+    user_message: String,
+    app_handle: AppHandle,
+    config_manager_state: tauri::State<'_, Arc<Mutex<ConfigManager>>>
+) -> Result<(String, ChatMessage), String> { // Returns our internal ChatMessage type
+    info!("Sending chat message. Session: {:?}, Message: {}", session_id, user_message);
+
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
+    let sessions_dir = data_dir.join("chat_sessions");
+    fs::create_dir_all(&sessions_dir)
+        .map_err(|e| format!("Failed to create chat sessions directory: {}", e))?;
+
+    let timestamp_now_ms = Utc::now().timestamp_millis();
+
+    let user_chat_message_internal = ChatMessage {
+        sender: "user".to_string(),
+        text: user_message.clone(),
+        timestamp_ms: timestamp_now_ms,
+    };
+
+    // --- Prepare data for API call --- 
+    let ai_config = config_manager_state.lock().get_config().ai.clone();
+    let api_key = ai_config.requesty_api_key;
+    let chat_model_name = ai_config.chat_model;
+
+    // Load existing messages if session_id is provided
+    let mut history: Vec<ChatMessage> = Vec::new();
+    let mut current_session_content: Option<ChatSessionFileContent> = None;
+
+    if let Some(ref id) = session_id {
+        let file_path = sessions_dir.join(format!("{}.json", id));
+        if file_path.exists() {
+            let content_str = fs::read_to_string(&file_path)
+                .map_err(|e| format!("Failed to read chat session file '{}': {}", file_path.display(), e))?;
+            let loaded_content: ChatSessionFileContent = serde_json::from_str(&content_str)
+                .map_err(|e| format!("Failed to parse chat session content for ID '{}': {}", id, e))?;
+            history = loaded_content.messages.clone(); // Clone history
+            current_session_content = Some(loaded_content);
+        } else {
+             warn!("Existing session ID provided, but file not found: {}. Starting new chat.", id);
+             // Fall through to create new session logic below
+             // Ensure history is empty if file wasn't found
+             history.clear(); 
+        }
+    }
+
+    // --- Limit History Size --- 
+    // Format messages for OpenAI API
+    let mut api_messages: Vec<OpenAiChatMessage> = history.iter().map(|msg| OpenAiChatMessage {
+        role: msg.sender.clone(), // Assuming sender is "user" or "ai" ("assistant")
+        content: msg.text.clone(),
+    }).collect();
     
-    let mut is_recording = state.is_recording.lock();
-    if *is_recording {
-        return Err("Already recording".to_string());
+    // Add the new user message
+    api_messages.push(OpenAiChatMessage {
+        role: "user".to_string(),
+        content: user_message.clone(),
+    });
+
+    // --- Get AI Response --- 
+    let ai_response_text: String;
+
+    if let Some(key) = api_key {
+        info!("API Key found, calling Requesty API...");
+        let client = Client::new();
+        let request_url = "https://router.requesty.ai/v1/chat/completions"; // Use deduced endpoint
+        
+        let payload = OpenAiChatCompletionRequest {
+            model: chat_model_name.clone(),
+            messages: api_messages, // Send history + new message
+        };
+
+        match client.post(request_url)
+            .bearer_auth(key)
+            .json(&payload)
+            .send()
+            .await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    match response.json::<OpenAiChatCompletionResponse>().await {
+                        Ok(parsed) => {
+                            if let Some(choice) = parsed.choices.first() {
+                                ai_response_text = choice.message.content.clone();
+                                info!("Received AI response successfully.");
+                            } else {
+                                error!("AI response contained no choices.");
+                                ai_response_text = "AI Error: No response choices received.".to_string();
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to parse AI response: {}", e);
+                            ai_response_text = format!("AI Error: Failed to parse response - {}", e);
+                        }
+                    }
+                } else {
+                    let status = response.status();
+                    let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                    error!("AI API request failed with status {}: {}", status, error_text);
+                    ai_response_text = format!("AI Error: API request failed ({}) - {}", status, error_text);
+                }
+            }
+            Err(e) => {
+                error!("Failed to send request to AI API: {}", e);
+                ai_response_text = format!("AI Error: Network error - {}", e);
+            }
+        }
+    } else {
+        warn!("Requesty API Key not found in config. Returning placeholder response.");
+        ai_response_text = format!("AI Placeholder: API key missing. Cannot connect to AI.");
+    }
+
+    let ai_chat_message_internal = ChatMessage {
+        sender: "ai".to_string(), // Use "ai" for our internal representation
+        text: ai_response_text,
+        timestamp_ms: Utc::now().timestamp_millis(),
+    };
+    // --- End Get AI Response ---
+
+    let final_session_id: String;
+    let mut final_session_content: ChatSessionFileContent;
+
+    if let Some(mut existing_content) = current_session_content {
+        // Append to existing session
+        final_session_id = existing_content.id.clone();
+        existing_content.messages.push(user_chat_message_internal);
+        existing_content.messages.push(ai_chat_message_internal.clone());
+        final_session_content = existing_content;
+    } else {
+        // Create new session
+        final_session_id = Uuid::new_v4().to_string();
+        final_session_content = ChatSessionFileContent {
+            id: final_session_id.clone(),
+            title: user_message.chars().take(30).collect::<String>() + (if user_message.len() > 30 { "..." } else { "" }),
+            created_timestamp_ms: timestamp_now_ms,
+            messages: vec![user_chat_message_internal, ai_chat_message_internal.clone()],
+        };
+    }
+
+    // Save the updated/new session content
+    let file_path = sessions_dir.join(format!("{}.json", final_session_id));
+    let json_content = serde_json::to_string_pretty(&final_session_content)
+        .map_err(|e| format!("Failed to serialize chat session content: {}", e))?;
+    fs::write(&file_path, json_content)
+        .map_err(|e| format!("Failed to write chat session file '{}': {}", file_path.display(), e))?;
+
+    info!("Chat message processed for session: {}", final_session_id);
+    Ok((final_session_id, ai_chat_message_internal))
+}
+
+#[tauri::command]
+async fn delete_chat_session(id: String, app_handle: AppHandle) -> Result<(), String> {
+    info!("Deleting chat session: {}", id);
+
+    let data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not determine app data directory: {}", e))?;
+    let sessions_dir = data_dir.join("chat_sessions");
+    let file_path = sessions_dir.join(format!("{}.json", id));
+
+    if !file_path.exists() {
+        return Err(format!("Chat session file not found for deletion: {}", id));
+    }
+
+    // Attempt to delete the file
+    fs::remove_file(&file_path)
+        .map_err(|e| format!("Failed to delete chat session file '{}': {}", file_path.display(), e))?;
+
+    info!("Chat session deleted successfully: {}", id);
+    Ok(())
+}
+
+// New command to save only Whisper-related settings
+#[tauri::command]
+async fn save_whisper_settings(
+    model_name: String,
+    language: String,
+    auto_punctuate: bool, // Example: Add other relevant Whisper settings as params
+    translate_to_english: bool,
+    context_formatting: bool,
+    segment_duration: f32,
+    buffer_size: f32,
+    config_manager: tauri::State<'_, Arc<Mutex<ConfigManager>>>
+) -> Result<(), String> {
+    info!("Saving Whisper settings: Model={}, Lang={}, Punct={}, Translate={}, Context={}, SegDur={}, BufSize={}", 
+        model_name, language, auto_punctuate, translate_to_english, context_formatting, segment_duration, buffer_size);
+    
+    let mut config_manager = config_manager.inner().lock();
+    let config = config_manager.get_config_mut();
+    let speech = &mut config.audio.speech;
+
+    // Update Whisper model size
+    speech.model_size = match model_name.as_str() {
+        "tiny" => bestme::config::WhisperModelSize::Tiny,
+        "base" => bestme::config::WhisperModelSize::Base,
+        "small" => bestme::config::WhisperModelSize::Small,
+        "medium" => bestme::config::WhisperModelSize::Medium,
+        "large" => bestme::config::WhisperModelSize::Large,
+        _ => {
+            warn!("Unknown Whisper model size '{}', defaulting to Small", model_name);
+            bestme::config::WhisperModelSize::Small // Default or return error?
+        },
+    };
+
+    // Update other Whisper settings
+    speech.language = language;
+    speech.auto_punctuate = auto_punctuate;
+    speech.translate_to_english = translate_to_english;
+    speech.context_formatting = context_formatting;
+    speech.segment_duration = segment_duration;
+    speech.buffer_size = buffer_size;
+
+    // Save the config
+    match config_manager.save() {
+        Ok(_) => {
+            info!("Whisper settings saved successfully.");
+            Ok(())
+        },
+        Err(e) => {
+            error!("Failed to save Whisper settings: {}", e);
+            Err(format!("Failed to save Whisper settings: {}", e))
+        },
+    }
+}
+
+// New command to save only AI Chat settings
+#[tauri::command]
+async fn save_ai_settings(
+    requesty_api_key: Option<String>,
+    chat_model: String,
+    config_manager: tauri::State<'_, Arc<Mutex<ConfigManager>>>
+) -> Result<(), String> {
+    info!("Saving AI Chat settings: Model={}", chat_model);
+    // Avoid logging the API key directly for security
+    if requesty_api_key.is_some() {
+        debug!("Saving non-empty Requesty API Key.");
+    } else {
+        debug!("Saving empty/null Requesty API Key.");
     }
     
-    *is_recording = true;
-    println!("Recording started");
+    let mut config_manager = config_manager.inner().lock();
+    let config = config_manager.get_config_mut();
     
-    Ok(())
+    // Update AI settings
+    // If the key is an empty string from the frontend, treat it as None
+    config.ai.requesty_api_key = requesty_api_key.filter(|k| !k.is_empty());
+    config.ai.chat_model = chat_model;
+
+    // Save the config
+    match config_manager.save() {
+        Ok(_) => {
+            info!("AI Chat settings saved successfully.");
+            Ok(())
+        },
+        Err(e) => {
+            error!("Failed to save AI Chat settings: {}", e);
+            Err(format!("Failed to save AI Chat settings: {}", e))
+        },
+    }
 }
 
-#[tauri::command(rename_all = "snake_case")]
-async fn audio_stop_recording(
-    state: State<'_, AudioState>,
-) -> Result<(), String> {
-    println!("Audio stop recording requested");
+// Shared application state
+struct AppState {
+    audio_state: Arc<Mutex<AudioState>>,
+    transcribe_state: Arc<TranscribeState>,
+    voice_command_state: Arc<Mutex<VoiceCommandState>>,
+    config_manager: Arc<Mutex<ConfigManager>>,
+    device_manager: Arc<Mutex<DeviceManager>>,
+}
+
+fn main() {
+    // Initialize logging with environment variables
+    // Set RUST_LOG=debug to enable debug logging
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp(Some(env_logger::fmt::TimestampPrecision::Millis))
+        .format_module_path(true)
+        .init();
     
-    let mut is_recording = state.is_recording.lock();
-    if !*is_recording {
-        return Err("Not recording".to_string());
+    info!("Starting BestMe Tauri 2.0 application");
+
+    // Initialize shared components
+    let config_manager = match ConfigManager::new() {
+        Ok(manager) => Arc::new(Mutex::new(manager)),
+        Err(e) => {
+            // Handle error: maybe create default config or panic
+            eprintln!("Failed to initialize config manager: {}. Using default config.", e);
+            // Consider creating a default config file here if it doesn't exist
+            // Or proceed with a default in-memory config
+            Arc::new(Mutex::new(ConfigManager::new().expect("Failed to create ConfigManager")))
+        }
+    };
+    let device_manager = match DeviceManager::new() {
+        Ok(manager) => Arc::new(Mutex::new(manager)),
+        Err(e) => {
+            eprintln!("Failed to initialize device manager: {}", e);
+            // Handle error gracefully, maybe disable audio features
+            Arc::new(Mutex::new(DeviceManager::new().expect("Failed to create DeviceManager")))
+        }
+    };
+    
+    // Create state objects
+    let audio_state = Arc::new(Mutex::new(AudioState::new(config_manager.clone(), device_manager.clone())));
+    
+    // Initialize TranscribeState
+    let transcribe_state = match TranscribeState::new(config_manager.clone(), None) {
+        Ok(state) => Arc::new(state),
+        Err(e) => {
+            error!("Failed to initialize transcribe state: {}", e);
+            panic!("Failed to initialize transcribe state: {}", e);
+        }
+    };
+    
+    let voice_command_state = Arc::new(Mutex::new(VoiceCommandState::new()));
+    
+    // Connect the states
+    {
+        let mut audio = audio_state.lock();
+        audio.set_transcribe_state(Arc::clone(&transcribe_state));
     }
     
-    *is_recording = false;
-    println!("Recording stopped");
-    
-    Ok(())
-}
+    {
+        let mut voice_commands = voice_command_state.lock();
+        
+        // Initialize voice command manager with config
+        let config = config_manager.lock().get_config().clone();
+        // Convert from library VoiceCommandConfig to TauriVoiceCommandConfig
+        let lib_config = &config.audio.voice_commands;
+        let tauri_config = plugin::voice_commands::TauriVoiceCommandConfig {
+            enabled: lib_config.enabled,
+            command_prefix: lib_config.command_prefix.clone(),
+            require_prefix: lib_config.require_prefix,
+            sensitivity: lib_config.sensitivity,
+            custom_commands: Vec::new(), // TODO: Convert VoiceCommandType to String
+            default_commands: true,
+        };
+        if let Err(e) = voice_commands.initialize(tauri_config) {
+            error!("Failed to initialize voice command system: {}", e);
+        }
+       
+    }
 
-#[tauri::command(rename_all = "snake_case")]
-async fn transcribe_set_voice_commands_enabled(enabled: bool) -> Result<(), String> {
-    println!("Voice commands enabled: {}", enabled);
-    Ok(())
-}
+    // Create app state
+    let app_state = AppState {
+        audio_state: Arc::clone(&audio_state),
+        transcribe_state: Arc::clone(&transcribe_state),
+        voice_command_state: Arc::clone(&voice_command_state),
+        config_manager,
+        device_manager,
+    };
+
+    tauri::Builder::default()
+        // Manage individual state components directly
+        .manage(app_state.config_manager.clone())
+        .manage(app_state.device_manager.clone())
+        .manage(app_state.audio_state.clone())
+        .manage(app_state.transcribe_state.clone())
+        .manage(app_state.voice_command_state.clone())
+        // Also register the complete AppState for convenience
+        .manage(app_state)
+        .plugin(AudioPlugin::new())
+        .plugin(TranscribePlugin::new())
+        .plugin(VoiceCommandPlugin::new())
+        .plugin(StoragePlugin::new())
+        .plugin(TextInjectionPlugin::new())
+        .invoke_handler(tauri::generate_handler![
+            get_audio_devices,
+            get_whisper_models,
+            get_model_download_info,
+            get_supported_languages,
+            save_all_settings,
+            get_settings,
+            toggle_voice_commands,
+            get_voice_command_settings,
+            save_voice_command_settings,
+            // System monitor commands
+            get_cpu_usage,
+            get_memory_usage,
+            get_online_status,
+            // New history command
+            list_saved_transcripts,
+            save_transcript,
+            get_saved_transcript,
+            delete_saved_transcript,
+            list_chat_sessions,
+            get_chat_session,
+            send_chat_message,
+            delete_chat_session,
+            save_whisper_settings,
+            save_ai_settings,
+            // Audio plugin commands
+            start_recording,
+            stop_recording,
+            get_level,
+            is_recording,
+            // Transcribe plugin commands
+            start_transcription,
+            stop_transcription,
+            get_transcription,
+            is_transcribing,
+            clear_transcription,
+            get_download_progress,
+            download_model_command,
+            is_model_downloaded,
+            is_voice_commands_enabled,
+            set_voice_commands_enabled,
+            update_whisper_params,
+            get_whisper_params,
+            add_vocabulary_entry,
+            remove_vocabulary_entry,
+            search_vocabulary,
+            get_vocabulary_entries,
+            import_vocabulary_csv,
+            export_vocabulary_csv,
+            // Voice commands plugin commands
+            get_voice_commands_status,
+            get_voice_commands_text,
+            get_voice_commands_history,
+            update_text,
+            apply_delete_operation,
+            undo_operation,
+            redo_operation,
+            get_ai_voice_settings,
+            save_ai_voice_settings,
+            process_ai_voice_command,
+            // Storage plugin commands
+            list_saved_transcripts_db,
+            get_saved_transcript_db,
+            save_transcript_db,
+            delete_saved_transcript_db,
+            search_transcripts_db,
+            export_transcripts_db,
+            // Text injection plugin commands
+            enable_text_injection,
+            inject_text,
+            get_active_window,
+            check_injection_permissions,
+            request_injection_permissions,
+            update_injection_config,
+            set_injection_mode
+        ])
+        .setup(|app| {
+            info!("Setting up Tauri 2.0 application");
+            
+            // Set app handles for components that need it
+            let app_handle = app.app_handle();
+            {
+                let mut voice_state = voice_command_state.lock();
+                voice_state.set_app_handle(app_handle.clone());
+            }
+            
+            // Setup integration between transcription and voice commands
+            {
+                let app_handle_clone = app.app_handle();
+                app_handle_clone.listen("transcription:update", move |event| {
+                    let payload = event.payload();
+                    if let Ok(text) = serde_json::from_str::<String>(payload) {
+                            debug!("Processing transcription for voice commands: '{}'", text);
+                            
+                            // Process transcription for voice commands
+                            let voice_state = voice_command_state.lock();
+                            match voice_state.process_transcription(&text) {
+                                Ok(commands) => {
+                                    if !commands.is_empty() {
+                                        info!("Detected {} voice commands in transcription", commands.len());
+                                        for cmd in &commands {
+                                            info!("Command: {:?}, Trigger: {}", cmd.command_type, cmd.trigger_text);
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    error!("Failed to process transcription for voice commands: {}", e);
+                                }
+                            }
+                    } else {
+                        warn!("Failed to parse transcription payload: {}", payload);
+                    }
+                });
+            }
+            
+            // Get the main window to set event listener
+            if let Some(window) = app.get_webview_window("main") {
+                // Clone window for use in closure
+                let window_clone = window.clone();
+                // Setup window events
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        info!("Window close requested");
+                        // Hide the window instead of closing it
+                        window_clone.hide().unwrap();
+                        api.prevent_close();
+                    }
+                });
+            }
+            
+            // Initialize AudioState properly after it's managed
+            let audio_state_managed = app.state::<Arc<Mutex<AudioState>>>();
+            if let Err(e) = audio_state_managed.lock().initialize() {
+                 error!("Failed to initialize AudioState during setup: {}", e);
+                 // Decide how to handle this error (e.g., show error to user, exit?)
+            }
+
+            // Set AppHandle for voice commands state AFTER getting it from managed state
+            let voice_state_managed = app.state::<Arc<Mutex<VoiceCommandState>>>();
+            voice_state_managed.lock().set_app_handle(app.handle().clone());
+
+            // Start voice commands if enabled (moved from plugin initialize to ensure state is ready)
+             let config_state = app.state::<Arc<Mutex<ConfigManager>>>();
+            let initial_config = config_state.lock().get_config().clone();
+            
+            {
+                 if initial_config.audio.voice_commands.enabled {
+                     info!("Voice commands auto-start temporarily disabled to fix runtime issue");
+                     // TODO: Fix the voice command initialization in async context
+                     // // Use the already managed voice_state_managed
+                     // let voice_state_clone = Arc::clone(&voice_state_managed);
+                     // tokio::spawn(async move {
+                     //      // We need to lock the state inside the async block
+                     //      let mut voice_state_lock = voice_state_clone.lock();
+                     //      if let Err(e) = voice_state_lock.start() {
+                     //            error!("Failed to auto-start voice commands: {}", e);
+                     //      } else {
+                     //            info!("Voice commands started successfully via config.");
+                     //      }
+                     // });
+                 } else {
+                     info!("Voice commands disabled in initial config.");
+                 }
+            }
+            
+            // Initialize system monitor
+            let handle_clone = app_handle.clone();
+            system_monitor::start_monitoring(handle_clone);
+
+            // Start recording automatically if configured
+            let should_auto_start = {
+                let config = config_state.lock().get_config().clone();
+                 config.general.auto_transcribe
+            };
+
+            if should_auto_start {
+                info!("Auto-starting recording as per config...");
+                // Use the managed audio state
+                let audio_state_clone = Arc::clone(&audio_state_managed);
+                tokio::spawn(async move {
+                     let audio_state_lock = audio_state_clone.lock();
+                     if let Err(e) = audio_state_lock.start_recording() {
+                         error!("Failed to auto-start recording: {}", e);
+                     } else {
+                         info!("Auto-start recording initiated successfully.");
+                     }
+                });
+            } else {
+                 info!("Auto-start recording disabled in config.");
+            }
+
+            info!("App setup finished successfully.");
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("Error while running Tauri application");
+} 

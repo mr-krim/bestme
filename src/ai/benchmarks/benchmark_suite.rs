@@ -47,20 +47,28 @@ impl BenchmarkSuite {
         let html_path = output_dir.join(format!("results_{}.html", timestamp));
         
         // Export JSON
-        self.config.output_format = super::OutputFormat::Json;
-        benchmark.export_results(json_path.to_str().unwrap()).await?;
+        let mut json_config = self.config.clone();
+        json_config.output_format = super::OutputFormat::Json;
+        let json_benchmark = ModelBenchmark::new(json_config, self.model_service.clone());
+        json_benchmark.export_results(json_path.to_str().unwrap()).await?;
         
         // Export CSV
-        self.config.output_format = super::OutputFormat::Csv;
-        benchmark.export_results(csv_path.to_str().unwrap()).await?;
+        let mut csv_config = self.config.clone();
+        csv_config.output_format = super::OutputFormat::Csv;
+        let csv_benchmark = ModelBenchmark::new(csv_config, self.model_service.clone());
+        csv_benchmark.export_results(csv_path.to_str().unwrap()).await?;
         
         // Export Markdown
-        self.config.output_format = super::OutputFormat::Markdown;
-        benchmark.export_results(md_path.to_str().unwrap()).await?;
+        let mut md_config = self.config.clone();
+        md_config.output_format = super::OutputFormat::Markdown;
+        let md_benchmark = ModelBenchmark::new(md_config, self.model_service.clone());
+        md_benchmark.export_results(md_path.to_str().unwrap()).await?;
         
         // Export HTML
-        self.config.output_format = super::OutputFormat::Html;
-        benchmark.export_results(html_path.to_str().unwrap()).await?;
+        let mut html_config = self.config.clone();
+        html_config.output_format = super::OutputFormat::Html;
+        let html_benchmark = ModelBenchmark::new(html_config, self.model_service.clone());
+        html_benchmark.export_results(html_path.to_str().unwrap()).await?;
         
         let total_time = start_time.elapsed();
         

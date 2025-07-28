@@ -15,6 +15,13 @@ pub struct ModelMetadata {
     pub capabilities: Vec<Capability>,
     pub performance: PerformanceProfile,
     pub requirements: ModelRequirements,
+    pub architecture: String,
+    pub parameters: String,
+    pub performance_class: String,
+    pub context_window: usize,
+    pub supports_gpu: bool,
+    pub download_url: Option<String>,
+    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -111,6 +118,13 @@ pub fn get_phi3_mini_metadata() -> ModelMetadata {
                 "CPU".to_string(),
             ],
         },
+        architecture: "Transformer".to_string(),
+        parameters: "3.8B".to_string(),
+        performance_class: "High".to_string(),
+        context_window: 4096,
+        supports_gpu: true,
+        download_url: Some("https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx".to_string()),
+        sha256: None,
     }
 }
 
@@ -150,6 +164,13 @@ pub fn get_llama32_1b_metadata() -> ModelMetadata {
                 "CPU".to_string(),
             ],
         },
+        architecture: "Transformer".to_string(),
+        parameters: "1B".to_string(),
+        performance_class: "Medium".to_string(),
+        context_window: 2048,
+        supports_gpu: true,
+        download_url: Some("https://huggingface.co/meta-llama/Llama-3.2-1B".to_string()),
+        sha256: None,
     }
 }
 
@@ -187,5 +208,12 @@ pub fn get_grammar_t5_metadata() -> ModelMetadata {
                 "CPU".to_string(),
             ],
         },
+        architecture: "T5".to_string(),
+        parameters: "220M".to_string(),
+        performance_class: "Low".to_string(),
+        context_window: 512,
+        supports_gpu: true,
+        download_url: Some("https://huggingface.co/vennify/t5-base-grammar-correction".to_string()),
+        sha256: None,
     }
 }

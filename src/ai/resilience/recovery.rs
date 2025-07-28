@@ -3,18 +3,15 @@
 //! Implements automatic recovery mechanisms for various failure scenarios
 
 use crate::ai::{Result, AIError};
-use crate::ai::common::{ensure_models_directory, get_models_directory};
-use crate::ai::telemetry::get_metrics;
-use opentelemetry::KeyValue;
+use crate::ai::common::ensure_models_directory;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use log::{info, warn, error};
 
 /// Recovery strategy types
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum RecoveryStrategy {
     /// Retry with exponential backoff
     Retry {
@@ -42,6 +39,43 @@ pub enum RecoveryStrategy {
     },
     /// Custom recovery function
     Custom(Arc<dyn Fn(&AIError) -> Box<dyn std::future::Future<Output = Result<()>> + Send> + Send + Sync>),
+}
+
+impl std::fmt::Debug for RecoveryStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Retry { max_attempts, initial_delay, max_delay, multiplier } => {
+                f.debug_struct("Retry")
+                    .field("max_attempts", max_attempts)
+                    .field("initial_delay", initial_delay)
+                    .field("max_delay", max_delay)
+                    .field("multiplier", multiplier)
+                    .finish()
+            }
+            Self::Redownload { max_attempts, verify_checksum } => {
+                f.debug_struct("Redownload")
+                    .field("max_attempts", max_attempts)
+                    .field("verify_checksum", verify_checksum)
+                    .finish()
+            }
+            Self::ClearCache { cache_types } => {
+                f.debug_struct("ClearCache")
+                    .field("cache_types", cache_types)
+                    .finish()
+            }
+            Self::RestartService { cooldown } => {
+                f.debug_struct("RestartService")
+                    .field("cooldown", cooldown)
+                    .finish()
+            }
+            Self::ModelFallback { fallback_models } => {
+                f.debug_struct("ModelFallback")
+                    .field("fallback_models", fallback_models)
+                    .finish()
+            }
+            Self::Custom(_) => write!(f, "Custom(<function>)"),
+        }
+    }
 }
 
 /// Types of cache that can be cleared
@@ -195,7 +229,7 @@ impl RecoveryManager {
         self.record_attempt(RecoveryAttempt {
             timestamp: Instant::now(),
             error_type: format!("{:?}", error),
-            strategy: strategy_name,
+            strategy: strategy_name.clone(),
             success,
             duration,
         }).await;
@@ -271,7 +305,9 @@ impl RecoveryManager {
                 self.execute_model_fallback(model_id, fallback_models).await
             }
             RecoveryStrategy::Custom(f) => {
-                f(error).await
+                use std::pin::Pin;
+                let boxed_future = f(error);
+                Pin::from(boxed_future).await
             }
         }
     }
@@ -416,8 +452,9 @@ impl RecoveryManager {
         history.push(attempt);
         
         // Keep only recent history (last 100 attempts)
-        if history.len() > 100 {
-            history.drain(0..history.len() - 100);
+        let len = history.len();
+        if len > 100 {
+            history.drain(0..len - 100);
         }
     }
 

@@ -2,7 +2,6 @@ use crate::ai::{AIProvider, EnhancementOptions, EnhancedText};
 use crate::audio::TranscriptionEvent;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
 
 /// AI Enhancement for transcribed text
 pub struct TranscriptionEnhancer {

@@ -12,7 +12,7 @@ pub use fallback::{FallbackChain, FallbackStrategy, ExecutionMode};
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use recovery::{RecoveryStrategy, RecoveryManager, RecoveryConfig};
 
-use crate::ai::{Result, AIError};
+use crate::ai::Result;
 use crate::ai::telemetry::{get_metrics, AIMetrics};
 use opentelemetry::KeyValue;
 use std::sync::Arc;
@@ -160,6 +160,7 @@ impl ResilienceManager {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use crate::ai::AIError;
 
     #[tokio::test]
     async fn test_resilience_manager_creation() {

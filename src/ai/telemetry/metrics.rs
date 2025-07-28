@@ -1,5 +1,4 @@
-use crate::ai::{Result, AIError};
-use opentelemetry::{global, KeyValue, Context};
+use opentelemetry::{KeyValue, Context};
 use opentelemetry::metrics::{Counter, Histogram, Meter, UpDownCounter};
 use std::time::{Duration, Instant};
 use std::sync::Arc;
@@ -29,7 +28,7 @@ pub struct ModelMetricsCollector {
 impl ModelMetricsCollector {
     /// Create a new metrics collector for a model
     pub fn new(model_id: String, meter: Meter) -> Self {
-        let labels = vec![KeyValue::new("model_id", model_id.clone())];
+        let _labels = vec![KeyValue::new("model_id", model_id.clone())];
         
         Self {
             model_id: model_id.clone(),
@@ -91,21 +90,21 @@ impl ModelMetricsCollector {
     
     /// Record an inference request
     pub fn record_inference(&self, latency: Duration, tokens: u64, success: bool) {
-        let cx = Context::current();
+        let _cx = Context::current();
         let labels = self.labels();
         
         // Record request count
-        self.inference_count.add(&cx, 1, &labels);
+        self.inference_count.add(1, &labels);
         
         // Record latency
-        self.latency_histogram.record(&cx, latency.as_millis() as f64, &labels);
+        self.latency_histogram.record(latency.as_millis() as f64, &labels);
         
         // Record tokens
-        self.token_histogram.record(&cx, tokens, &labels);
+        self.token_histogram.record(tokens, &labels);
         
         // Record error if failed
         if !success {
-            self.error_count.add(&cx, 1, &labels);
+            self.error_count.add(1, &labels);
         }
         
         // Calculate and record throughput
@@ -116,34 +115,34 @@ impl ModelMetricsCollector {
                 .with_unit("tokens/s")
                 .with_description("Token throughput")
                 .init()
-                .record(&cx, throughput, &labels);
+                .record(throughput, &labels);
         }
     }
     
     /// Record cache hit
     pub fn record_cache_hit(&self) {
-        let cx = Context::current();
-        self.cache_hits.add(&cx, 1, &self.labels());
+        let _cx = Context::current();
+        self.cache_hits.add(1, &self.labels());
     }
     
     /// Record cache miss
     pub fn record_cache_miss(&self) {
-        let cx = Context::current();
-        self.cache_misses.add(&cx, 1, &self.labels());
+        let _cx = Context::current();
+        self.cache_misses.add(1, &self.labels());
     }
     
     /// Record memory usage
     pub fn record_memory_usage(&self, memory_mb: f64) {
-        let cx = Context::current();
-        self.memory_histogram.record(&cx, memory_mb, &self.labels());
+        let _cx = Context::current();
+        self.memory_histogram.record(memory_mb, &self.labels());
     }
     
     /// Record batch processing
     pub fn record_batch(&self, batch_size: u64, total_latency: Duration) {
-        let cx = Context::current();
+        let _cx = Context::current();
         let labels = self.labels();
         
-        self.batch_size_histogram.record(&cx, batch_size, &labels);
+        self.batch_size_histogram.record(batch_size, &labels);
         
         // Record average latency per item
         if batch_size > 0 {
@@ -153,14 +152,14 @@ impl ModelMetricsCollector {
                 .with_unit("ms")
                 .with_description("Average latency per item in batch")
                 .init()
-                .record(&cx, avg_latency, &labels);
+                .record(avg_latency, &labels);
         }
     }
     
     /// Track active request
     pub fn track_request(&self) -> RequestTracker {
-        let cx = Context::current();
-        self.active_requests.add(&cx, 1, &self.labels());
+        let _cx = Context::current();
+        self.active_requests.add(1, &self.labels());
         
         RequestTracker {
             collector: self,
@@ -170,23 +169,23 @@ impl ModelMetricsCollector {
     
     /// Record model loaded
     pub fn record_model_loaded(&self, load_time: Duration) {
-        let cx = Context::current();
+        let _cx = Context::current();
         let labels = self.labels();
         
-        self.loaded_models.add(&cx, 1, &labels);
+        self.loaded_models.add(1, &labels);
         
         self.meter
             .f64_histogram("ai.model.load_time")
             .with_unit("ms")
             .with_description("Model load time")
             .init()
-            .record(&cx, load_time.as_millis() as f64, &labels);
+            .record(load_time.as_millis() as f64, &labels);
     }
     
     /// Record model unloaded
     pub fn record_model_unloaded(&self) {
-        let cx = Context::current();
-        self.loaded_models.add(&cx, -1, &self.labels());
+        let _cx = Context::current();
+        self.loaded_models.add(-1, &self.labels());
     }
     
     /// Get labels for this model
@@ -203,8 +202,8 @@ pub struct RequestTracker<'a> {
 
 impl<'a> Drop for RequestTracker<'a> {
     fn drop(&mut self) {
-        let cx = Context::current();
-        self.collector.active_requests.add(&cx, -1, &self.collector.labels());
+        let _cx = Context::current();
+        self.collector.active_requests.add(-1, &self.collector.labels());
     }
 }
 
@@ -268,29 +267,29 @@ impl SystemMetricsCollector {
     
     /// Record system metrics
     pub fn record_system_metrics(&self, cpu: f64, memory_mb: f64) {
-        let cx = Context::current();
+        let _cx = Context::current();
         let labels = vec![];
         
-        self.cpu_usage.record(&cx, cpu, &labels);
-        self.memory_usage.record(&cx, memory_mb, &labels);
+        self.cpu_usage.record(cpu, &labels);
+        self.memory_usage.record(memory_mb, &labels);
     }
     
     /// Record GPU metrics
     pub fn record_gpu_metrics(&self, gpu_id: u32, usage: f64, memory_mb: f64) {
-        let cx = Context::current();
+        let _cx = Context::current();
         let labels = vec![KeyValue::new("gpu_id", gpu_id as i64)];
         
-        self.gpu_usage.record(&cx, usage, &labels);
-        self.gpu_memory.record(&cx, memory_mb, &labels);
+        self.gpu_usage.record(usage, &labels);
+        self.gpu_memory.record(memory_mb, &labels);
     }
     
     /// Record queue metrics
     pub fn record_queue_metrics(&self, size: i64, wait_time: Duration) {
-        let cx = Context::current();
+        let _cx = Context::current();
         let labels = vec![];
         
-        self.queue_size.add(&cx, size, &labels);
-        self.queue_latency.record(&cx, wait_time.as_millis() as f64, &labels);
+        self.queue_size.add(size, &labels);
+        self.queue_latency.record(wait_time.as_millis() as f64, &labels);
     }
 }
 
@@ -362,7 +361,7 @@ mod tests {
     
     #[test]
     fn test_model_metrics_collector() {
-        let meter = global::meter("test");
+        let meter = opentelemetry::global::meter("test");
         let collector = ModelMetricsCollector::new("test-model".to_string(), meter);
         
         // Test recording inference
@@ -373,7 +372,7 @@ mod tests {
     
     #[test]
     fn test_request_tracker() {
-        let meter = global::meter("test");
+        let meter = opentelemetry::global::meter("test");
         let collector = ModelMetricsCollector::new("test-model".to_string(), meter);
         
         {

@@ -3,9 +3,10 @@
 use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
+use tauri::ipc::Invoke;
 use std::sync::Arc;
 use tauri::{
-    plugin::{Builder, TauriPlugin},
+    plugin::{Builder, Plugin},
     AppHandle, Manager, Runtime, State,
 };
 use tokio::sync::Mutex;
@@ -87,7 +88,7 @@ pub struct SavedTranscriptContent {
 
 /// List saved transcripts from SQLite storage
 #[tauri::command]
-async fn list_saved_transcripts_db(
+pub async fn list_saved_transcripts_db(
     state: State<'_, Arc<Mutex<StorageState>>>,
     limit: Option<usize>,
     session_id: Option<String>,
@@ -128,7 +129,7 @@ async fn list_saved_transcripts_db(
 
 /// Get a specific saved transcript from SQLite
 #[tauri::command]
-async fn get_saved_transcript_db(
+pub async fn get_saved_transcript_db(
     state: State<'_, Arc<Mutex<StorageState>>>,
     id: String,
 ) -> Result<SavedTranscriptContent, String> {
@@ -164,7 +165,7 @@ async fn get_saved_transcript_db(
 
 /// Save a new transcript to SQLite
 #[tauri::command]
-async fn save_transcript_db(
+pub async fn save_transcript_db(
     state: State<'_, Arc<Mutex<StorageState>>>,
     title: String,
     content: String,
@@ -211,7 +212,7 @@ async fn save_transcript_db(
 
 /// Delete a saved transcript from SQLite
 #[tauri::command]
-async fn delete_saved_transcript_db(
+pub async fn delete_saved_transcript_db(
     state: State<'_, Arc<Mutex<StorageState>>>,
     id: String,
 ) -> Result<(), String> {
@@ -238,7 +239,7 @@ async fn delete_saved_transcript_db(
 
 /// Search transcripts in SQLite
 #[tauri::command]
-async fn search_transcripts_db(
+pub async fn search_transcripts_db(
     state: State<'_, Arc<Mutex<StorageState>>>,
     query: String,
     limit: Option<usize>,
@@ -282,7 +283,7 @@ async fn search_transcripts_db(
 
 /// Export transcripts from SQLite
 #[tauri::command]
-async fn export_transcripts_db(
+pub async fn export_transcripts_db(
     state: State<'_, Arc<Mutex<StorageState>>>,
     ids: Vec<String>,
     format: String,
@@ -315,33 +316,21 @@ async fn export_transcripts_db(
     }
 }
 
-/// Storage plugin builder
+/// Storage plugin for Tauri 2.0
+#[derive(Default)]
 pub struct StoragePlugin<R: Runtime> {
-    invoke_handler: Box<dyn Fn(tauri::Invoke<R>) + Send + Sync>,
-}
-
-impl<R: Runtime> Default for StoragePlugin<R> {
-    fn default() -> Self {
-        Self {
-            invoke_handler: Box::new(tauri::generate_handler![
-                list_saved_transcripts_db,
-                get_saved_transcript_db,
-                save_transcript_db,
-                delete_saved_transcript_db,
-                search_transcripts_db,
-                export_transcripts_db,
-            ]),
-        }
-    }
+    _phantom: std::marker::PhantomData<fn() -> R>,
 }
 
 impl<R: Runtime> StoragePlugin<R> {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
     }
 }
 
-impl<R: Runtime> TauriPlugin<R> for StoragePlugin<R> {
+impl<R: Runtime> Plugin<R> for StoragePlugin<R> {
     fn name(&self) -> &'static str {
         "storage"
     }
@@ -374,7 +363,4 @@ impl<R: Runtime> TauriPlugin<R> for StoragePlugin<R> {
         Ok(())
     }
     
-    fn extend_api(&mut self, message: tauri::Invoke<R>) {
-        (self.invoke_handler)(message)
-    }
 }

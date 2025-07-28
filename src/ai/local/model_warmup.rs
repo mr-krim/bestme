@@ -1,4 +1,4 @@
-use crate::ai::{Result, AIError, EnhancementOptions, EnhancedText};
+use crate::ai::{Result, EnhancementOptions, EnhancedText};
 use crate::ai::services::model_service::AIModel;
 use std::sync::Arc;
 use tokio::sync::{RwLock, Mutex};
@@ -103,6 +103,8 @@ impl ModelWarmupCache {
             preserve_style: true,
             detect_intent: false,
             format_markdown: false,
+            improve_punctuation: true,
+            confidence_threshold: 0.7,
         };
         
         // Run warmup iterations

@@ -1,11 +1,11 @@
-use crate::ai::{Result, AIError};
+use crate::ai::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Memory types for context management
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemoryType {
     /// Short-term memory (current conversation)
     ShortTerm,

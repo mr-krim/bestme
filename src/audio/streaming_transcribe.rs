@@ -1,10 +1,10 @@
 //! Streaming transcription with real-time processing
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::{debug, info, warn};
 use std::sync::Arc;
 use parking_lot::Mutex;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use std::collections::VecDeque;
 
 use crate::config::{SpeechSettings, WhisperParamsSettings};
@@ -384,6 +384,7 @@ pub struct StreamingTranscriptionManager {
     
     /// Control channel
     control_tx: mpsc::Sender<StreamingControl>,
+    #[allow(dead_code)]
     control_rx: Arc<Mutex<mpsc::Receiver<StreamingControl>>>,
     
     /// Event sender (for passing to processor)
@@ -478,7 +479,7 @@ mod tests {
     
     #[test]
     fn test_vad_integration() {
-        let vad = VoiceActivityDetector::new(0.1, 300, 800, 16000);
+        let mut vad = VoiceActivityDetector::new(0.1, 300, 800, 16000);
         
         // Generate test audio
         let silence = vec![0.0f32; 8000];

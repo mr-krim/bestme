@@ -1,4 +1,3 @@
-use crate::ai::{Result, AIError};
 use opentelemetry::{global, trace::{Span, SpanKind, Status, TraceContextExt, Tracer}};
 use opentelemetry::{Context, KeyValue};
 use std::sync::Arc;
@@ -6,7 +5,7 @@ use std::time::Instant;
 
 /// Distributed tracing for AI operations
 pub struct AITracer {
-    tracer: Arc<dyn Tracer + Send + Sync>,
+    tracer: global::BoxedTracer,
 }
 
 impl AITracer {
@@ -14,7 +13,7 @@ impl AITracer {
     pub fn new() -> Self {
         let tracer = global::tracer("bestme-ai");
         Self {
-            tracer: Arc::new(tracer),
+            tracer,
         }
     }
     
@@ -27,7 +26,7 @@ impl AITracer {
                 KeyValue::new("model.id", model_id.to_string()),
                 KeyValue::new("operation", operation.to_string()),
             ])
-            .start(&*self.tracer);
+            .start(&self.tracer);
         
         InferenceSpan {
             span,
@@ -43,7 +42,7 @@ impl AITracer {
             .with_attributes(vec![
                 KeyValue::new("model.id", model_id.to_string()),
             ])
-            .start(&*self.tracer);
+            .start(&self.tracer);
         
         ModelLoadSpan {
             span,
@@ -60,7 +59,7 @@ impl AITracer {
                 KeyValue::new("model.id", model_id.to_string()),
                 KeyValue::new("batch.size", batch_size as i64),
             ])
-            .start(&*self.tracer);
+            .start(&self.tracer);
         
         BatchSpan {
             span,
@@ -73,9 +72,9 @@ impl AITracer {
     pub fn child_span(&self, name: &str) -> ChildSpan {
         let cx = Context::current();
         let span = self.tracer
-            .span_builder(name)
+            .span_builder(name.to_string())
             .with_kind(SpanKind::Internal)
-            .start_with_context(&*self.tracer, &cx);
+            .start_with_context(&self.tracer, &cx);
         
         ChildSpan { span }
     }
@@ -83,7 +82,7 @@ impl AITracer {
 
 /// Span for tracking inference operations
 pub struct InferenceSpan {
-    span: Box<dyn Span>,
+    span: global::BoxedSpan,
     start_time: Instant,
 }
 
@@ -103,8 +102,10 @@ impl InferenceSpan {
     
     /// Record error
     pub fn record_error(&mut self, error: &str) {
-        self.span.record_error(error);
-        self.span.set_status(Status::error(error));
+        // Convert string to a proper error type
+        let err = std::io::Error::new(std::io::ErrorKind::Other, error);
+        self.span.record_error(&err);
+        self.span.set_status(Status::error(error.to_string()));
     }
     
     /// Complete the span successfully
@@ -127,7 +128,7 @@ impl Drop for InferenceSpan {
 
 /// Span for tracking model loading
 pub struct ModelLoadSpan {
-    span: Box<dyn Span>,
+    span: global::BoxedSpan,
     start_time: Instant,
 }
 
@@ -144,8 +145,10 @@ impl ModelLoadSpan {
     
     /// Record error
     pub fn record_error(&mut self, error: &str) {
-        self.span.record_error(error);
-        self.span.set_status(Status::error(error));
+        // Convert string to a proper error type
+        let err = std::io::Error::new(std::io::ErrorKind::Other, error);
+        self.span.record_error(&err);
+        self.span.set_status(Status::error(error.to_string()));
     }
     
     /// Complete the span
@@ -162,7 +165,7 @@ impl ModelLoadSpan {
 
 /// Span for tracking batch processing
 pub struct BatchSpan {
-    span: Box<dyn Span>,
+    span: global::BoxedSpan,
     start_time: Instant,
     batch_size: usize,
 }
@@ -198,18 +201,18 @@ impl BatchSpan {
 
 /// Generic child span
 pub struct ChildSpan {
-    span: Box<dyn Span>,
+    span: global::BoxedSpan,
 }
 
 impl ChildSpan {
     /// Add an attribute
     pub fn set_attribute(&mut self, key: &str, value: impl Into<opentelemetry::Value>) {
-        self.span.set_attribute(KeyValue::new(key, value.into()));
+        self.span.set_attribute(KeyValue::new(key.to_string(), value.into()));
     }
     
     /// Record an event
     pub fn add_event(&mut self, name: &str, attributes: Vec<KeyValue>) {
-        self.span.add_event(name, attributes);
+        self.span.add_event(name.to_string(), attributes);
     }
     
     /// Complete the span

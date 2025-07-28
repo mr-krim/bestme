@@ -6,7 +6,6 @@ use semver::Version;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 
-use crate::ai::models::registry::ModelRegistry;
 use crate::ai::models::ModelMetadata;
 use crate::ai::services::ModelService;
 
@@ -18,7 +17,7 @@ pub struct ModelUpdateChecker {
 }
 
 /// Configuration for update checking
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCheckerConfig {
     /// Check for updates automatically
     pub auto_check_enabled: bool,
@@ -168,8 +167,7 @@ impl ModelUpdateChecker {
         let current_metadata = self.model_service.get_registry()
             .get_model_metadata(model_id)
             .await
-            .map_err(|e| format!("Failed to get model metadata: {}", e))?
-            .ok_or_else(|| format!("Model {} not found", model_id))?;
+            .map_err(|e| format!("Failed to get model metadata: {}", e))?;
         
         // Get latest metadata from registry (simulated - in production, this would query a remote registry)
         let latest_metadata = self.fetch_latest_metadata(model_id).await?;
@@ -275,7 +273,7 @@ impl ModelUpdateChecker {
         // Check new capabilities
         for capability in &latest.capabilities {
             if !current.capabilities.contains(capability) {
-                improvements.push(format!("New capability: {}", capability));
+                improvements.push(format!("New capability: {:?}", capability));
             }
         }
         
@@ -356,8 +354,7 @@ impl ModelUpdateChecker {
         let mut metadata = self.model_service.get_registry()
             .get_model_metadata(model_id)
             .await
-            .map_err(|e| format!("Failed to get metadata: {}", e))?
-            .ok_or_else(|| format!("Model {} not found", model_id))?;
+            .map_err(|e| format!("Failed to get metadata: {}", e))?;
         
         // Simulate a newer version
         if let Ok(version) = self.extract_version(&metadata.id) {
@@ -431,8 +428,8 @@ impl ModelUpdateChecker {
 mod tests {
     use super::*;
     
-    #[test]
-    fn test_version_extraction() {
+    #[tokio::test]
+    async fn test_version_extraction() {
         let checker = ModelUpdateChecker::new(
             Arc::new(ModelService::new().await.unwrap()),
             Default::default(),
@@ -454,8 +451,8 @@ mod tests {
         );
     }
     
-    #[test]
-    fn test_parameter_parsing() {
+    #[tokio::test]
+    async fn test_parameter_parsing() {
         let checker = ModelUpdateChecker::new(
             Arc::new(ModelService::new().await.unwrap()),
             Default::default(),

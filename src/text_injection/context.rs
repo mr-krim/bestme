@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use log::{debug, warn};
+use log::warn;
 
 #[cfg(target_os = "windows")]
 use windows::{

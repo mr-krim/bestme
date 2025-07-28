@@ -33,10 +33,10 @@ impl LocalAI {
             .ok_or_else(|| AIError::ModelNotFound(model_name.to_string()))?;
 
         // Check if model file exists, download if necessary
-        let model_path = self.ensure_model_downloaded(model_info).await?;
+        let model_path = self.ensure_model_downloaded(&model_info).await?;
         
         // Load the model based on the backend
-        let model = self.create_model_instance(&model_path, model_info).await?;
+        let model = self.create_model_instance(&model_path, &model_info).await?;
         
         let mut model_guard = self.model.write().await;
         *model_guard = Some(model);

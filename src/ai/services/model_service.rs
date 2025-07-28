@@ -8,7 +8,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
 pub struct ModelService {
     registry: Arc<ModelRegistry>,
     loaded_models: Arc<RwLock<HashMap<String, Arc<dyn AIModel>>>>,
@@ -23,14 +22,15 @@ pub struct LoadedModelInfo {
     pub load_time_ms: u64,
 }
 
+#[async_trait::async_trait]
 pub trait AIModel: Send + Sync {
     fn model_id(&self) -> &str;
     fn memory_usage(&self) -> u64;
-    fn enhance_text(
+    async fn enhance_text(
         &self,
         text: &str,
         options: &EnhancementOptions,
-    ) -> impl std::future::Future<Output = Result<EnhancedText>> + Send;
+    ) -> Result<EnhancedText>;
 }
 
 #[derive(Debug)]
@@ -74,16 +74,16 @@ impl ModelService {
         
         // Check if optimized version exists
         let optimized_path = model_path.with_extension("optimized.onnx");
-        let final_model_path = if optimized_path.exists() {
+        let (final_model_path, was_optimized) = if optimized_path.exists() {
             log::info!("Using optimized model at {:?}", optimized_path);
-            optimized_path
+            (optimized_path.clone(), true)
         } else if metadata.performance.avg_latency_ms > 100.0 {
             // Optimize models with high latency
             log::info!("Optimizing model for better performance...");
             self.optimize_model(&model_path, &optimized_path).await?;
-            optimized_path
+            (optimized_path.clone(), true)
         } else {
-            model_path.clone()
+            (model_path.clone(), false)
         };
 
         // Check GPU memory
@@ -122,7 +122,7 @@ impl ModelService {
         metrics_collector.record_model_loaded(start_time.elapsed());
         
         // Record optimization if applied
-        if optimized_path.exists() {
+        if was_optimized {
             load_span.record_optimization("dynamic");
         }
 

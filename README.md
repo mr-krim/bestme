@@ -1,18 +1,22 @@
-# BestMe - Modern Speech-to-Text Application
+# BestMe - AI-Powered Speech Transcription
 
-BestMe is a cross-platform speech-to-text application powered by AI, designed to work on Windows, macOS, and Linux.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=flat&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Tauri](https://img.shields.io/badge/tauri-%2324C8DB.svg?style=flat&logo=tauri&logoColor=%23FFFFFF)](https://tauri.app/)
 
-## Features
+BestMe is a modern, cross-platform speech-to-text application with AI enhancement capabilities. Built with Rust and Tauri 2.0, it offers real-time transcription, voice commands, and intelligent text processing.
 
-- Real-time speech transcription with Whisper AI
-- AI-powered text enhancement (grammar, punctuation, style)
-- Multiple language support
-- Voice command capabilities
-- Local and cloud AI providers (OpenRouter, OpenAI, Requesty)
-- Custom ONNX model support
-- GPU acceleration (CUDA, Metal, DirectML)
-- System tray integration
-- Configurable speech recognition settings
+## 🌟 Features
+
+- **Real-time Speech Transcription** - Powered by OpenAI's Whisper model
+- **AI Text Enhancement** - Improve grammar, style, and clarity
+- **Voice Commands** - Control your computer with voice
+- **Cross-Platform** - Works on Windows, macOS, and Linux
+- **GPU Acceleration** - CUDA and Metal support for faster processing
+- **Multiple AI Providers** - Local ONNX models and cloud APIs (OpenAI, OpenRouter, Anthropic)
+- **Privacy-First** - All transcription happens locally
+- **System Tray Integration** - Runs in background
+- **Custom Model Support** - Bring your own ONNX models
 
 ## Requirements
 
@@ -100,11 +104,7 @@ You can also place a `config.json` file in the `config` directory of the applica
 
 ## AI Features
 
-BestMe includes comprehensive AI capabilities for enhanced transcription accuracy and text processing:
-
-- **Quick Start**: See the [AI Quick Start Guide](docs/AI-QUICK-START.md) to get started
-- **Full Documentation**: Read the [AI Features Documentation](docs/AI-FEATURES.md) for detailed information
-- **API Reference**: Check the [AI API Reference](docs/AI-API-REFERENCE.md) for development
+BestMe includes comprehensive AI capabilities for enhanced transcription accuracy and text processing. See the [AI Guide](docs/AI-GUIDE.md) for complete documentation.
 
 ### Key AI Capabilities
 
@@ -151,12 +151,21 @@ To run BestMe with the voice command system:
 4. Check the command history display to see detected commands
 5. View real-time feedback in the notification that appears when commands are detected
 
-### Troubleshooting
+### Documentation
 
-If you encounter issues with voice commands:
+- **[Development Guide](docs/DEVELOPMENT.md)** - Technical details and architecture
+- **[AI Guide](docs/AI-GUIDE.md)** - Complete AI system documentation
+- **[Installation Guide](docs/INSTALLATION.md)** - Platform-specific setup
+- **[Testing Guide](docs/TESTING.md)** - Testing procedures
+- **[Voice Commands](docs/VOICE_COMMANDS.md)** - Voice command reference
+- **[Changelog](CHANGELOG.md)** - Version history and milestones
+
+## Troubleshooting
+
+If you encounter issues:
 
 1. Check the console logs for error messages
 2. Ensure your microphone is working correctly
 3. Try simple commands first (like "computer, period")
 4. Adjust the sensitivity in the voice command settings
-5. See the debugging guide in `docs/debugging.md` for more details 
+5. See the [Development Guide](docs/DEVELOPMENT.md#debugging) for detailed debugging 

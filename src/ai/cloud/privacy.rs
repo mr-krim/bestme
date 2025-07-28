@@ -1,8 +1,6 @@
-use crate::ai::{Result, AIError, PrivacyLevel};
+use crate::ai::{Result, PrivacyLevel};
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 pub struct PrivacyManager {
     privacy_level: PrivacyLevel,

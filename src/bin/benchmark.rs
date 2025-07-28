@@ -126,13 +126,9 @@ async fn run_benchmark(
         }
     }
     
-    let (tx, mut rx) = mpsc::channel(100);
-    let manager = TranscriptionManager::new(
+    let (mut manager, mut rx) = TranscriptionManager::new(
         config.audio.speech.clone(),
-        config.get_model_path().await,
-    );
-    
-    manager.set_event_sender(tx);
+    ).map_err(|e| anyhow::anyhow!("Failed to create transcription manager: {}", e))?;
     
     // Initialize (loads model)
     let init_start = Instant::now();
@@ -145,8 +141,7 @@ async fn run_benchmark(
     
     // Process audio
     let process_start = Instant::now();
-    manager.process_audio(audio).await?;
-    manager.force_process_buffer().await?;
+    let _ = manager.process_audio(audio).await?;
     
     // Wait for completion
     let mut processing_time = 0.0;
@@ -155,7 +150,7 @@ async fn run_benchmark(
     tokio::time::timeout(timeout, async {
         while let Some(event) = rx.recv().await {
             match event {
-                TranscriptionEvent::TranscriptionComplete { .. } => {
+                TranscriptionEvent::Transcription(_) => {
                     processing_time = process_start.elapsed().as_secs_f32();
                     break;
                 }

@@ -2,9 +2,7 @@ pub mod model_benchmark;
 pub mod performance_tracker;
 pub mod benchmark_suite;
 
-use crate::ai::{Result, AIError};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// Benchmark configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

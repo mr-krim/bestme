@@ -192,10 +192,11 @@ mod integration_tests {
 
     #[test]
     fn test_model_info_lookup() {
-        use crate::ai::common::{find_model_info, AVAILABLE_MODELS};
+        use crate::ai::common::{find_model_info, get_available_models};
         
         // Test available models
-        assert!(AVAILABLE_MODELS.len() > 0);
+        let available_models = get_available_models();
+        assert!(available_models.len() > 0);
         
         // Test model lookup
         let phi3 = find_model_info("phi-3-mini");
