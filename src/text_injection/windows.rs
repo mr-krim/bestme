@@ -8,7 +8,11 @@ use parking_lot::Mutex;
 
 use super::{TextInjector, InjectionMode, PermissionStatus, WindowInfo};
 use super::context::ContextDetector;
-use super::keycodes::{VirtualKey, GenericKeycodeMapper, KeyPress, Modifiers};
+use super::keycodes::{VirtualKey as VKey, GenericKeycodeMapper, KeyPress, Modifiers};
+
+// Import our compatibility layer
+#[cfg(target_os = "windows")]
+use super::windows_types::compat::*;
 
 /// Windows text injector using SendInput API
 pub struct WindowsInjector {
@@ -28,118 +32,118 @@ impl WindowsInjector {
     }
     
     /// Convert VirtualKey to Windows virtual key code
-    fn virtual_key_to_vk(&self, key: VirtualKey) -> u16 {
+    fn virtual_key_to_vk(&self, key: VKey) -> u16 {
         match key {
             // Letters
-            VirtualKey::A => 0x41,
-            VirtualKey::B => 0x42,
-            VirtualKey::C => 0x43,
-            VirtualKey::D => 0x44,
-            VirtualKey::E => 0x45,
-            VirtualKey::F => 0x46,
-            VirtualKey::G => 0x47,
-            VirtualKey::H => 0x48,
-            VirtualKey::I => 0x49,
-            VirtualKey::J => 0x4A,
-            VirtualKey::K => 0x4B,
-            VirtualKey::L => 0x4C,
-            VirtualKey::M => 0x4D,
-            VirtualKey::N => 0x4E,
-            VirtualKey::O => 0x4F,
-            VirtualKey::P => 0x50,
-            VirtualKey::Q => 0x51,
-            VirtualKey::R => 0x52,
-            VirtualKey::S => 0x53,
-            VirtualKey::T => 0x54,
-            VirtualKey::U => 0x55,
-            VirtualKey::V => 0x56,
-            VirtualKey::W => 0x57,
-            VirtualKey::X => 0x58,
-            VirtualKey::Y => 0x59,
-            VirtualKey::Z => 0x5A,
+            VKey::A => 0x41,
+            VKey::B => 0x42,
+            VKey::C => 0x43,
+            VKey::D => 0x44,
+            VKey::E => 0x45,
+            VKey::F => 0x46,
+            VKey::G => 0x47,
+            VKey::H => 0x48,
+            VKey::I => 0x49,
+            VKey::J => 0x4A,
+            VKey::K => 0x4B,
+            VKey::L => 0x4C,
+            VKey::M => 0x4D,
+            VKey::N => 0x4E,
+            VKey::O => 0x4F,
+            VKey::P => 0x50,
+            VKey::Q => 0x51,
+            VKey::R => 0x52,
+            VKey::S => 0x53,
+            VKey::T => 0x54,
+            VKey::U => 0x55,
+            VKey::V => 0x56,
+            VKey::W => 0x57,
+            VKey::X => 0x58,
+            VKey::Y => 0x59,
+            VKey::Z => 0x5A,
             
             // Numbers
-            VirtualKey::Num0 => 0x30,
-            VirtualKey::Num1 => 0x31,
-            VirtualKey::Num2 => 0x32,
-            VirtualKey::Num3 => 0x33,
-            VirtualKey::Num4 => 0x34,
-            VirtualKey::Num5 => 0x35,
-            VirtualKey::Num6 => 0x36,
-            VirtualKey::Num7 => 0x37,
-            VirtualKey::Num8 => 0x38,
-            VirtualKey::Num9 => 0x39,
+            VKey::Num0 => 0x30,
+            VKey::Num1 => 0x31,
+            VKey::Num2 => 0x32,
+            VKey::Num3 => 0x33,
+            VKey::Num4 => 0x34,
+            VKey::Num5 => 0x35,
+            VKey::Num6 => 0x36,
+            VKey::Num7 => 0x37,
+            VKey::Num8 => 0x38,
+            VKey::Num9 => 0x39,
             
             // Function keys
-            VirtualKey::F1 => 0x70,
-            VirtualKey::F2 => 0x71,
-            VirtualKey::F3 => 0x72,
-            VirtualKey::F4 => 0x73,
-            VirtualKey::F5 => 0x74,
-            VirtualKey::F6 => 0x75,
-            VirtualKey::F7 => 0x76,
-            VirtualKey::F8 => 0x77,
-            VirtualKey::F9 => 0x78,
-            VirtualKey::F10 => 0x79,
-            VirtualKey::F11 => 0x7A,
-            VirtualKey::F12 => 0x7B,
+            VKey::F1 => 0x70,
+            VKey::F2 => 0x71,
+            VKey::F3 => 0x72,
+            VKey::F4 => 0x73,
+            VKey::F5 => 0x74,
+            VKey::F6 => 0x75,
+            VKey::F7 => 0x76,
+            VKey::F8 => 0x77,
+            VKey::F9 => 0x78,
+            VKey::F10 => 0x79,
+            VKey::F11 => 0x7A,
+            VKey::F12 => 0x7B,
             
             // Modifiers
-            VirtualKey::Shift => 0x10,
-            VirtualKey::Control => 0x11,
-            VirtualKey::Alt => 0x12,
-            VirtualKey::Meta => 0x5B, // Left Windows key
+            VKey::Shift => 0x10,
+            VKey::Control => 0x11,
+            VKey::Alt => 0x12,
+            VKey::Meta => 0x5B, // Left Windows key
             
             // Special keys
-            VirtualKey::Space => 0x20,
-            VirtualKey::Enter => 0x0D,
-            VirtualKey::Tab => 0x09,
-            VirtualKey::Backspace => 0x08,
-            VirtualKey::Delete => 0x2E,
-            VirtualKey::Escape => 0x1B,
-            VirtualKey::CapsLock => 0x14,
-            VirtualKey::NumLock => 0x90,
-            VirtualKey::ScrollLock => 0x91,
+            VKey::Space => 0x20,
+            VKey::Enter => 0x0D,
+            VKey::Tab => 0x09,
+            VKey::Backspace => 0x08,
+            VKey::Delete => 0x2E,
+            VKey::Escape => 0x1B,
+            VKey::CapsLock => 0x14,
+            VKey::NumLock => 0x90,
+            VKey::ScrollLock => 0x91,
             
             // Navigation
-            VirtualKey::Left => 0x25,
-            VirtualKey::Right => 0x27,
-            VirtualKey::Up => 0x26,
-            VirtualKey::Down => 0x28,
-            VirtualKey::Home => 0x24,
-            VirtualKey::End => 0x23,
-            VirtualKey::PageUp => 0x21,
-            VirtualKey::PageDown => 0x22,
+            VKey::Left => 0x25,
+            VKey::Right => 0x27,
+            VKey::Up => 0x26,
+            VKey::Down => 0x28,
+            VKey::Home => 0x24,
+            VKey::End => 0x23,
+            VKey::PageUp => 0x21,
+            VKey::PageDown => 0x22,
             
             // Punctuation
-            VirtualKey::Minus => 0xBD,
-            VirtualKey::Equals => 0xBB,
-            VirtualKey::LeftBracket => 0xDB,
-            VirtualKey::RightBracket => 0xDD,
-            VirtualKey::Semicolon => 0xBA,
-            VirtualKey::Quote => 0xDE,
-            VirtualKey::Backslash => 0xDC,
-            VirtualKey::Comma => 0xBC,
-            VirtualKey::Period => 0xBE,
-            VirtualKey::Slash => 0xBF,
-            VirtualKey::Grave => 0xC0,
+            VKey::Minus => 0xBD,
+            VKey::Equals => 0xBB,
+            VKey::LeftBracket => 0xDB,
+            VKey::RightBracket => 0xDD,
+            VKey::Semicolon => 0xBA,
+            VKey::Quote => 0xDE,
+            VKey::Backslash => 0xDC,
+            VKey::Comma => 0xBC,
+            VKey::Period => 0xBE,
+            VKey::Slash => 0xBF,
+            VKey::Grave => 0xC0,
             
             // Numpad
-            VirtualKey::Numpad0 => 0x60,
-            VirtualKey::Numpad1 => 0x61,
-            VirtualKey::Numpad2 => 0x62,
-            VirtualKey::Numpad3 => 0x63,
-            VirtualKey::Numpad4 => 0x64,
-            VirtualKey::Numpad5 => 0x65,
-            VirtualKey::Numpad6 => 0x66,
-            VirtualKey::Numpad7 => 0x67,
-            VirtualKey::Numpad8 => 0x68,
-            VirtualKey::Numpad9 => 0x69,
-            VirtualKey::NumpadMultiply => 0x6A,
-            VirtualKey::NumpadAdd => 0x6B,
-            VirtualKey::NumpadSubtract => 0x6D,
-            VirtualKey::NumpadDecimal => 0x6E,
-            VirtualKey::NumpadDivide => 0x6F,
+            VKey::Numpad0 => 0x60,
+            VKey::Numpad1 => 0x61,
+            VKey::Numpad2 => 0x62,
+            VKey::Numpad3 => 0x63,
+            VKey::Numpad4 => 0x64,
+            VKey::Numpad5 => 0x65,
+            VKey::Numpad6 => 0x66,
+            VKey::Numpad7 => 0x67,
+            VKey::Numpad8 => 0x68,
+            VKey::Numpad9 => 0x69,
+            VKey::NumpadMultiply => 0x6A,
+            VKey::NumpadAdd => 0x6B,
+            VKey::NumpadSubtract => 0x6D,
+            VKey::NumpadDecimal => 0x6E,
+            VKey::NumpadDivide => 0x6F,
         }
     }
     
@@ -147,6 +151,7 @@ impl WindowsInjector {
     #[cfg(target_os = "windows")]
     async fn send_key_press(&self, key_press: &KeyPress) -> Result<()> {
         use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        use crate::text_injection::windows_types::compat::*;
         use windows::Win32::UI::WindowsAndMessaging::*;
         
         let mut inputs = Vec::new();
@@ -157,9 +162,9 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: self.virtual_key_to_vk(VirtualKey::Shift),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Shift)),
                         wScan: 0,
-                        dwFlags: KEYEVENTF(0),
+                        dwFlags: KEYBD_EVENT_FLAGS(0),
                         time: 0,
                         dwExtraInfo: 0,
                     },
@@ -172,9 +177,9 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: self.virtual_key_to_vk(VirtualKey::Control),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Control)),
                         wScan: 0,
-                        dwFlags: KEYEVENTF(0),
+                        dwFlags: KEYBD_EVENT_FLAGS(0),
                         time: 0,
                         dwExtraInfo: 0,
                     },
@@ -187,9 +192,9 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: self.virtual_key_to_vk(VirtualKey::Alt),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Alt)),
                         wScan: 0,
-                        dwFlags: KEYEVENTF(0),
+                        dwFlags: KEYBD_EVENT_FLAGS(0),
                         time: 0,
                         dwExtraInfo: 0,
                     },
@@ -203,9 +208,9 @@ impl WindowsInjector {
             r#type: INPUT_KEYBOARD,
             Anonymous: INPUT_0 {
                 ki: KEYBDINPUT {
-                    wVk: vk_code,
+                    wVk: create_virtual_key(vk_code),
                     wScan: 0,
-                    dwFlags: KEYEVENTF(0),
+                    dwFlags: KEYBD_EVENT_FLAGS(0),
                     time: 0,
                     dwExtraInfo: 0,
                 },
@@ -217,7 +222,7 @@ impl WindowsInjector {
             r#type: INPUT_KEYBOARD,
             Anonymous: INPUT_0 {
                 ki: KEYBDINPUT {
-                    wVk: vk_code,
+                    wVk: create_virtual_key(vk_code),
                     wScan: 0,
                     dwFlags: KEYEVENTF_KEYUP,
                     time: 0,
@@ -232,7 +237,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: self.virtual_key_to_vk(VirtualKey::Alt),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Alt)),
                         wScan: 0,
                         dwFlags: KEYEVENTF_KEYUP,
                         time: 0,
@@ -247,7 +252,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: self.virtual_key_to_vk(VirtualKey::Control),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Control)),
                         wScan: 0,
                         dwFlags: KEYEVENTF_KEYUP,
                         time: 0,
@@ -262,7 +267,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: self.virtual_key_to_vk(VirtualKey::Shift),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Shift)),
                         wScan: 0,
                         dwFlags: KEYEVENTF_KEYUP,
                         time: 0,
@@ -301,14 +306,14 @@ impl WindowsInjector {
         let mut utf16_buf = [0u16; 2];
         let utf16_slice = ch.encode_utf16(&mut utf16_buf);
         
-        for &code_unit in utf16_slice {
+        for code_unit in utf16_slice {
             // Send Unicode character using KEYEVENTF_UNICODE flag
             inputs.push(INPUT {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: 0, // Must be 0 for Unicode
-                        wScan: code_unit,
+                        wVk: VIRTUAL_KEY(0), // Must be 0 for Unicode
+                        wScan: *code_unit,
                         dwFlags: KEYEVENTF_UNICODE,
                         time: 0,
                         dwExtraInfo: 0,
@@ -321,9 +326,9 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: 0,
-                        wScan: code_unit,
-                        dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                        wVk: VIRTUAL_KEY(0),
+                        wScan: *code_unit,
+                        dwFlags: KEYBD_EVENT_FLAGS(KEYEVENTF_UNICODE.0 | KEYEVENTF_KEYUP.0),
                         time: 0,
                         dwExtraInfo: 0,
                     },
@@ -398,7 +403,7 @@ impl WindowsInjector {
             
             // Set clipboard content
             set_clipboard(formats::Unicode, text)
-                .context("Failed to set clipboard")?;
+                .map_err(|e| anyhow::anyhow!("Failed to set clipboard: {:?}", e))?;
             
             // Send Ctrl+V
             let paste_key = KeyPress {
