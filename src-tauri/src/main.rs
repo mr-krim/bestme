@@ -10,14 +10,11 @@ use std::sync::Arc;
 // Tauri 2.0 imports
 use tauri::{Manager, Listener};
 use tauri::AppHandle;
-use serde_json::Value as JsonValue;
 
 // Import from main bestme crate
 use bestme::audio::device::DeviceManager;
 use bestme::config::ConfigManager;
 use bestme::config::WhisperModelSize;
-use bestme::audio::voice_commands::VoiceCommandConfig as LibVoiceCommandConfig;
-use bestme::config::{Config, GeneralSettings, AudioSettings, SpeechSettings}; // Import specific structs
 
 // Import our custom plugins
 use plugin::{
@@ -49,7 +46,6 @@ use plugin::{
     }
 };
 
-use plugin::transcribe::SUPPORTED_LANGUAGES;
 
 // Import system monitor commands
 use system_monitor::{get_cpu_usage, get_memory_usage, get_online_status};
@@ -57,11 +53,10 @@ use system_monitor::{get_cpu_usage, get_memory_usage, get_online_status};
 // Import serde
 use serde::{Serialize, Deserialize};
 use std::fs;
-use std::path::{Path, PathBuf};
-use chrono::{DateTime, Utc, TimeZone};
+use std::path::PathBuf;
+use chrono::{Utc, TimeZone};
 use uuid::Uuid;
 use reqwest::Client;
-use std::collections::VecDeque; // Using VecDeque might be slightly better for history
 use serde_json::json; // For creating JSON values manually if needed
 
 // Extension trait for DeviceManager to implement list_devices
@@ -134,8 +129,7 @@ async fn get_model_download_info() -> Vec<serde_json::Value> {
 
 #[tauri::command]
 async fn get_supported_languages() -> Vec<[String; 2]> {
-    use plugin::transcribe::SUPPORTED_LANGUAGES;
-    
+        
     SUPPORTED_LANGUAGES.iter()
         .map(|&(code, name)| [code.to_string(), name.to_string()])
         .collect()
@@ -963,14 +957,47 @@ struct AppState {
 }
 
 fn main() {
-    // Initialize logging with environment variables
+    // Initialize logging with environment variables and file output
     // Set RUST_LOG=debug to enable debug logging
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    
+    // Get the app data directory for logs
+    let log_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("bestme-tauri")
+        .join("logs");
+    
+    // Create log directory if it doesn't exist
+    std::fs::create_dir_all(&log_dir).ok();
+    
+    let log_file_path = log_dir.join(format!("bestme_{}.log", 
+        chrono::Local::now().format("%Y%m%d_%H%M%S")));
+    
+    // Initialize logger with both console and file output
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp(Some(env_logger::fmt::TimestampPrecision::Millis))
         .format_module_path(true)
+        .format(move |buf, record| {
+            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+            let formatted = format!("{} [{}] {} - {}\n", 
+                timestamp, record.level(), record.target(), record.args());
+            
+            // Also write to file
+            if let Ok(mut file) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_file_path)
+            {
+                file.write_all(formatted.as_bytes()).ok();
+            }
+            
+            writeln!(buf, "{}", formatted.trim())
+        })
         .init();
     
     info!("Starting BestMe Tauri 2.0 application");
+    info!("Log file: {:?}", log_file_path);
 
     // Initialize shared components
     let config_manager = match ConfigManager::new() {
@@ -1173,6 +1200,15 @@ fn main() {
             
             // Get the main window to set event listener
             if let Some(window) = app.get_webview_window("main") {
+                info!("Main window found, showing it...");
+                // Make sure window is visible
+                window.show().unwrap_or_else(|e| {
+                    error!("Failed to show window: {}", e);
+                });
+                window.set_focus().unwrap_or_else(|e| {
+                    error!("Failed to focus window: {}", e);
+                });
+                
                 // Clone window for use in closure
                 let window_clone = window.clone();
                 // Setup window events
@@ -1184,7 +1220,46 @@ fn main() {
                         api.prevent_close();
                     }
                 });
+            } else {
+                error!("Main window not found!");
             }
+            
+            // Set up system tray
+            use tauri::{menu::{Menu, MenuItem}, tray::{TrayIcon, TrayIconBuilder}};
+            
+            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let hide = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
+            
+            let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
+            
+            let tray = TrayIconBuilder::new()
+                .menu(&menu)
+                .tooltip("BestMe - Speech to Text")
+                .icon(app.default_window_icon().unwrap().clone())
+                .on_menu_event(move |app, event| {
+                    match event.id.as_ref() {
+                        "quit" => {
+                            info!("Quit requested from tray");
+                            app.exit(0);
+                        }
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                window.show().unwrap();
+                                window.set_focus().unwrap();
+                            }
+                        }
+                        "hide" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                window.hide().unwrap();
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .build(app)?;
+            
+            info!("System tray initialized");
             
             // Initialize AudioState properly after it's managed
             let audio_state_managed = app.state::<Arc<Mutex<AudioState>>>();

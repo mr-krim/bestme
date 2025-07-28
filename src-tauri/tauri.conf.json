@@ -17,9 +17,19 @@
         "resizable": true,
         "title": "BestMe - Speech to Text",
         "width": 960,
-        "height": 720
+        "height": 720,
+        "visible": true,
+        "center": true,
+        "decorations": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false
       }
-    ]
+    ],
+    "systemTray": {
+      "iconPath": "icons/icon.ico",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false
+    }
   },
   "bundle": {
     "active": true,
