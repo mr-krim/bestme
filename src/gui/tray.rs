@@ -87,7 +87,8 @@ impl SystemTray {
             )
         };
         
-        if hwnd.0 == 0 {
+        let hwnd = hwnd?;
+        if hwnd.0.is_null() {
             anyhow::bail!("Failed to create tray window");
         }
         
@@ -108,7 +109,7 @@ impl SystemTray {
         let tip = b"BestMe Transcription\0";
         unsafe {
             std::ptr::copy_nonoverlapping(
-                tip.as_ptr(),
+                tip.as_ptr() as *const i8,
                 nid.szTip.as_mut_ptr(),
                 tip.len(),
             );
@@ -199,7 +200,7 @@ impl SystemTray {
                             
                             let flags = TPM_RIGHTBUTTON;
                             let _tpm_result = TrackPopupMenu(
-                                HMENU(0), // This should ideally be the menu handle
+                                HMENU(std::ptr::null_mut()), // This should ideally be the menu handle
                                 flags,
                                 point.x,
                                 point.y,

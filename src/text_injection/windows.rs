@@ -162,7 +162,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Shift)),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VKey::Shift)),
                         wScan: 0,
                         dwFlags: KEYBD_EVENT_FLAGS(0),
                         time: 0,
@@ -177,7 +177,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Control)),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VKey::Control)),
                         wScan: 0,
                         dwFlags: KEYBD_EVENT_FLAGS(0),
                         time: 0,
@@ -192,7 +192,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Alt)),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VKey::Alt)),
                         wScan: 0,
                         dwFlags: KEYBD_EVENT_FLAGS(0),
                         time: 0,
@@ -237,7 +237,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Alt)),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VKey::Alt)),
                         wScan: 0,
                         dwFlags: KEYEVENTF_KEYUP,
                         time: 0,
@@ -252,7 +252,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Control)),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VKey::Control)),
                         wScan: 0,
                         dwFlags: KEYEVENTF_KEYUP,
                         time: 0,
@@ -267,7 +267,7 @@ impl WindowsInjector {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: create_virtual_key(self.virtual_key_to_vk(VirtualKey::Shift)),
+                        wVk: create_virtual_key(self.virtual_key_to_vk(VKey::Shift)),
                         wScan: 0,
                         dwFlags: KEYEVENTF_KEYUP,
                         time: 0,
@@ -407,7 +407,7 @@ impl WindowsInjector {
             
             // Send Ctrl+V
             let paste_key = KeyPress {
-                key: VirtualKey::V,
+                key: VKey::V,
                 modifiers: Modifiers {
                     control: true,
                     ..Default::default()
@@ -500,15 +500,15 @@ mod tests {
         let injector = WindowsInjector::new().unwrap();
         
         // Test letter mapping
-        assert_eq!(injector.virtual_key_to_vk(VirtualKey::A), 0x41);
-        assert_eq!(injector.virtual_key_to_vk(VirtualKey::Z), 0x5A);
+        assert_eq!(injector.virtual_key_to_vk(VKey::A), 0x41);
+        assert_eq!(injector.virtual_key_to_vk(VKey::Z), 0x5A);
         
         // Test number mapping
-        assert_eq!(injector.virtual_key_to_vk(VirtualKey::Num0), 0x30);
-        assert_eq!(injector.virtual_key_to_vk(VirtualKey::Num9), 0x39);
+        assert_eq!(injector.virtual_key_to_vk(VKey::Num0), 0x30);
+        assert_eq!(injector.virtual_key_to_vk(VKey::Num9), 0x39);
         
         // Test special keys
-        assert_eq!(injector.virtual_key_to_vk(VirtualKey::Space), 0x20);
-        assert_eq!(injector.virtual_key_to_vk(VirtualKey::Enter), 0x0D);
+        assert_eq!(injector.virtual_key_to_vk(VKey::Space), 0x20);
+        assert_eq!(injector.virtual_key_to_vk(VKey::Enter), 0x0D);
     }
 }

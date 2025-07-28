@@ -67,7 +67,8 @@ impl SettingsDialog {
             )
         };
         
-        if hwnd.0 == 0 {
+        let hwnd = hwnd?;
+        if hwnd.0.is_null() {
             anyhow::bail!("Failed to create settings dialog");
         }
         
