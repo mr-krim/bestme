@@ -1,6 +1,6 @@
 //! Multi-pass processing for improved transcription accuracy
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::{debug, info, warn};
 use std::sync::Arc;
 use parking_lot::Mutex;

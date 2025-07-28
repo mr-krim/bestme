@@ -3,9 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[cfg(target_os = "windows")]
-use windows::Win32::Security::Credentials::{
-    CredReadW, CredWriteW, CredDeleteW, CREDENTIALW, CRED_TYPE_GENERIC,
-    CRED_PERSIST_LOCAL_MACHINE,
+use windows::{
+    core::PWSTR,
+    Win32::Security::Credentials::{
+        CredReadW, CredWriteW, CredDeleteW, CREDENTIALW, CRED_TYPE_GENERIC,
+        CRED_PERSIST_LOCAL_MACHINE,
+    },
 };
 
 #[cfg(target_os = "macos")]
@@ -127,11 +130,11 @@ impl ApiKeyManager {
         
         let mut credential = CREDENTIALW {
             Type: CRED_TYPE_GENERIC,
-            TargetName: target_name.as_ptr() as *mut u16,
+            TargetName: PWSTR(target_name.as_ptr() as *mut u16),
             CredentialBlobSize: credential_blob.len() as u32,
             CredentialBlob: credential_blob.as_ptr() as *mut u8,
             Persist: CRED_PERSIST_LOCAL_MACHINE,
-            UserName: std::ptr::null_mut(),
+            UserName: PWSTR::null(),
             ..Default::default()
         };
         
@@ -186,7 +189,7 @@ impl ApiKeyManager {
         let mut credential_ptr = std::ptr::null_mut();
         
         unsafe {
-            CredReadW(target_name.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential_ptr)
+            CredReadW(windows::core::PCWSTR::from_raw(target_name.as_ptr()), CRED_TYPE_GENERIC, 0, &mut credential_ptr)
                 .map_err(|e| AIError::ConfigError(format!("Failed to read key: {:?}", e)))?;
             
             let credential = &*credential_ptr;
@@ -246,7 +249,7 @@ impl ApiKeyManager {
         let target_name: Vec<u16> = OsStr::new(key_id).encode_wide().chain(Some(0)).collect();
         
         unsafe {
-            CredDeleteW(target_name.as_ptr(), CRED_TYPE_GENERIC, 0)
+            CredDeleteW(windows::core::PCWSTR::from_raw(target_name.as_ptr()), CRED_TYPE_GENERIC, 0)
                 .map_err(|e| AIError::ConfigError(format!("Failed to delete key: {:?}", e)))?;
         }
         

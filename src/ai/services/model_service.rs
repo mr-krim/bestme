@@ -1,4 +1,4 @@
-use crate::ai::{Result, AIError, AIProvider, EnhancementOptions, EnhancedText};
+use crate::ai::{Result, AIError, EnhancementOptions, EnhancedText};
 use crate::ai::models::{ModelMetadata, ModelFormat};
 use crate::ai::models::registry::ModelRegistry;
 use crate::ai::local::onnx_runtime::{OnnxRuntimeModel, OnnxModelConfig, OnnxModelType};

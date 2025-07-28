@@ -8,12 +8,10 @@ pub mod compat {
     pub type VirtualKey = u16;
     pub type KeyEventFlags = u32;
     
-    // Re-export the actual constants
+    // Re-export the actual constants (only used ones)
     pub use windows::Win32::UI::Input::KeyboardAndMouse::{
-        KEYEVENTF_EXTENDEDKEY,
         KEYEVENTF_KEYUP, 
         KEYEVENTF_UNICODE,
-        KEYEVENTF_SCANCODE,
     };
     
     // Helper function to create KEYEVENTF from our flag type

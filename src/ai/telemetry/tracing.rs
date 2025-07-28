@@ -1,4 +1,4 @@
-use opentelemetry::{global, trace::{Span, SpanKind, Status, TraceContextExt, Tracer}};
+use opentelemetry::{global, trace::{Span, SpanKind, Status, Tracer}};
 use opentelemetry::{Context, KeyValue};
 use std::sync::Arc;
 use std::time::Instant;

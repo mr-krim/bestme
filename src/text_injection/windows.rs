@@ -1,8 +1,8 @@
 //! Windows implementation of text injection using SendInput
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::sync::Arc;
 use parking_lot::Mutex;
 
@@ -12,7 +12,6 @@ use super::keycodes::{VirtualKey as VKey, GenericKeycodeMapper, KeyPress, Modifi
 
 // Import our compatibility layer
 #[cfg(target_os = "windows")]
-use super::windows_types::compat::*;
 
 /// Windows text injector using SendInput API
 pub struct WindowsInjector {
@@ -152,7 +151,6 @@ impl WindowsInjector {
     async fn send_key_press(&self, key_press: &KeyPress) -> Result<()> {
         use windows::Win32::UI::Input::KeyboardAndMouse::*;
         use crate::text_injection::windows_types::compat::*;
-        use windows::Win32::UI::WindowsAndMessaging::*;
         
         let mut inputs = Vec::new();
         
@@ -298,7 +296,6 @@ impl WindowsInjector {
     #[cfg(target_os = "windows")]
     async fn send_unicode_char(&self, ch: char) -> Result<()> {
         use windows::Win32::UI::Input::KeyboardAndMouse::*;
-        use windows::Win32::UI::WindowsAndMessaging::*;
         
         let mut inputs = Vec::new();
         
