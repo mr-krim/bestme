@@ -6,6 +6,7 @@ mod system_monitor;
 use log::{error, info, debug, warn};
 use parking_lot::Mutex;
 use std::sync::Arc;
+use crate::plugin::transcribe::SUPPORTED_LANGUAGES;
 
 // Tauri 2.0 imports
 use tauri::{Manager, Listener};
@@ -974,6 +975,8 @@ fn main() {
     let log_file_path = log_dir.join(format!("bestme_{}.log", 
         chrono::Local::now().format("%Y%m%d_%H%M%S")));
     
+    let log_file_path_clone = log_file_path.clone();
+    
     // Initialize logger with both console and file output
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp(Some(env_logger::fmt::TimestampPrecision::Millis))
@@ -987,7 +990,7 @@ fn main() {
             if let Ok(mut file) = OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(&log_file_path)
+                .open(&log_file_path_clone)
             {
                 file.write_all(formatted.as_bytes()).ok();
             }
@@ -1233,7 +1236,7 @@ fn main() {
             
             let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
             
-            let tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::new()
                 .menu(&menu)
                 .tooltip("BestMe - Speech to Text")
                 .icon(app.default_window_icon().unwrap().clone())

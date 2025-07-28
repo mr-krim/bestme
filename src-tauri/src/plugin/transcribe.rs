@@ -1,8 +1,6 @@
 use anyhow::{Result, anyhow};
 use log::{info, debug, error, warn};
 use parking_lot::Mutex;
-use reqwest::Client;
-use serde::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::fs;
@@ -17,12 +15,9 @@ use std::marker::PhantomData;
 use bestme::audio::capture::AudioData;
 use bestme::audio::voice_commands::{VoiceCommandManager as VoiceCommandProcessor, VoiceCommandEvent};
 use bestme::audio::vad::{VoiceActivityDetector, VADResult};
-use bestme::audio::enhanced_transcribe::{EnhancedWhisperProcessor, TranscriptSegment, HallucinationDetector};
-use bestme::audio::streaming_transcribe::{
-    StreamingTranscriptionManager, StreamingConfig, StreamingEvent
-};
+use bestme::audio::enhanced_transcribe::{EnhancedWhisperProcessor, HallucinationDetector};
 use bestme::audio::vocabulary::{VocabularyManager, VocabularyEntry};
-use bestme::config::{ConfigManager, WhisperModelSize, SpeechSettings, WhisperParamsSettings};
+use bestme::config::{ConfigManager, WhisperModelSize};
 
 // Constants for audio processing
 const WHISPER_SAMPLE_RATE: usize = 16000;
@@ -525,7 +520,7 @@ impl TranscribeState {
             
             // Spawn a task to process audio data
             tokio::spawn(async move {
-                let mut buffer_timer = tokio::time::interval(std::time::Duration::from_secs(1));
+                let mut _buffer_timer = tokio::time::interval(std::time::Duration::from_secs(1));
                 
                 // Load model eagerly
                 {

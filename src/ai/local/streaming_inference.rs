@@ -81,10 +81,10 @@ pub struct TextPosition {
 
 #[derive(Debug, Clone)]
 struct ProcessedSegment {
-    original: String,
+    _original: String,
     enhanced: String,
-    position: TextPosition,
-    timestamp: std::time::Instant,
+    _position: TextPosition,
+    _timestamp: std::time::Instant,
 }
 
 impl StreamingInference {
@@ -282,10 +282,10 @@ impl StreamingInference {
         
         let segment_len = text.len();
         let segment = ProcessedSegment {
-            original: text.clone(),
+            _original: text.clone(),
             enhanced: enhanced.clone(),
-            position: position.clone(),
-            timestamp: std::time::Instant::now(),
+            _position: position.clone(),
+            _timestamp: std::time::Instant::now(),
         };
         
         {

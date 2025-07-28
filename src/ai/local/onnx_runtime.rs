@@ -12,7 +12,7 @@ pub struct OnnxRuntimeModel {
     model_id: String,
     session: Arc<Session>,
     tokenizer: Arc<Tokenizer>,
-    environment: Arc<Environment>,
+    _environment: Arc<Environment>,
     config: OnnxModelConfig,
     memory_usage: u64,
 }
@@ -142,7 +142,7 @@ impl OnnxRuntimeModel {
             model_id,
             session: Arc::new(session),
             tokenizer: Arc::new(tokenizer),
-            environment,
+            _environment: environment,
             config,
             memory_usage,
         })

@@ -1,37 +1,32 @@
 //! Storage plugin for managing transcripts with SQLite
 
-use anyhow::{Context, Result};
-use log::{debug, error, info, warn};
+use anyhow::Result;
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
-use tauri::ipc::Invoke;
 use std::sync::Arc;
 use tauri::{
-    plugin::{Builder, Plugin},
+    plugin::Plugin,
     AppHandle, Manager, Runtime, State,
 };
 use tokio::sync::Mutex;
 
-#[cfg(feature = "storage")]
 use bestme::storage::{
-    StorageManager, DatabaseConfig, Transcript, SearchQuery, ExportFormat, SortOrder
+    StorageManager, DatabaseConfig, Transcript, SearchQuery, ExportFormat
 };
 
 /// Storage state for the Tauri plugin
 pub struct StorageState {
-    #[cfg(feature = "storage")]
-    manager: Option<Arc<StorageManager>>,
+        manager: Option<Arc<StorageManager>>,
 }
 
 impl StorageState {
     pub fn new() -> Self {
         Self {
-            #[cfg(feature = "storage")]
-            manager: None,
+                        manager: None,
         }
     }
     
-    #[cfg(feature = "storage")]
-    pub async fn initialize(&mut self, app_handle: &AppHandle) -> Result<()> {
+        pub async fn initialize<R: Runtime>(&mut self, app_handle: &AppHandle<R>) -> Result<()> {
         // Get app data directory
         let app_data_dir = app_handle.path()
             .app_data_dir()
@@ -57,8 +52,7 @@ impl StorageState {
         }
     }
     
-    #[cfg(feature = "storage")]
-    pub fn get_manager(&self) -> Option<Arc<StorageManager>> {
+        pub fn get_manager(&self) -> Option<Arc<StorageManager>> {
         self.manager.clone()
     }
 }
@@ -93,8 +87,7 @@ pub async fn list_saved_transcripts_db(
     limit: Option<usize>,
     session_id: Option<String>,
 ) -> Result<Vec<SavedTranscriptListItem>, String> {
-    #[cfg(feature = "storage")]
-    {
+        {
         let state = state.lock().await;
         
         if let Some(manager) = state.get_manager() {
@@ -120,7 +113,6 @@ pub async fn list_saved_transcripts_db(
         }
     }
     
-    #[cfg(not(feature = "storage"))]
     {
         warn!("Storage feature not enabled, returning empty list");
         Ok(vec![])
@@ -133,8 +125,7 @@ pub async fn get_saved_transcript_db(
     state: State<'_, Arc<Mutex<StorageState>>>,
     id: String,
 ) -> Result<SavedTranscriptContent, String> {
-    #[cfg(feature = "storage")]
-    {
+        {
         let state = state.lock().await;
         
         if let Some(manager) = state.get_manager() {
@@ -157,7 +148,6 @@ pub async fn get_saved_transcript_db(
         }
     }
     
-    #[cfg(not(feature = "storage"))]
     {
         Err("Storage feature not enabled".to_string())
     }
@@ -170,8 +160,7 @@ pub async fn save_transcript_db(
     title: String,
     content: String,
 ) -> Result<String, String> {
-    #[cfg(feature = "storage")]
-    {
+        {
         let state = state.lock().await;
         
         if let Some(manager) = state.get_manager() {
@@ -204,7 +193,6 @@ pub async fn save_transcript_db(
         }
     }
     
-    #[cfg(not(feature = "storage"))]
     {
         Err("Storage feature not enabled".to_string())
     }
@@ -216,8 +204,7 @@ pub async fn delete_saved_transcript_db(
     state: State<'_, Arc<Mutex<StorageState>>>,
     id: String,
 ) -> Result<(), String> {
-    #[cfg(feature = "storage")]
-    {
+        {
         let state = state.lock().await;
         
         if let Some(manager) = state.get_manager() {
@@ -231,7 +218,6 @@ pub async fn delete_saved_transcript_db(
         }
     }
     
-    #[cfg(not(feature = "storage"))]
     {
         Err("Storage feature not enabled".to_string())
     }
@@ -244,8 +230,7 @@ pub async fn search_transcripts_db(
     query: String,
     limit: Option<usize>,
 ) -> Result<Vec<SavedTranscriptListItem>, String> {
-    #[cfg(feature = "storage")]
-    {
+        {
         let state = state.lock().await;
         
         if let Some(manager) = state.get_manager() {
@@ -275,7 +260,6 @@ pub async fn search_transcripts_db(
         }
     }
     
-    #[cfg(not(feature = "storage"))]
     {
         Ok(vec![])
     }
@@ -288,8 +272,7 @@ pub async fn export_transcripts_db(
     ids: Vec<String>,
     format: String,
 ) -> Result<String, String> {
-    #[cfg(feature = "storage")]
-    {
+        {
         let state = state.lock().await;
         
         if let Some(manager) = state.get_manager() {
@@ -310,7 +293,6 @@ pub async fn export_transcripts_db(
         }
     }
     
-    #[cfg(not(feature = "storage"))]
     {
         Err("Storage feature not enabled".to_string())
     }
@@ -342,8 +324,7 @@ impl<R: Runtime> Plugin<R> for StoragePlugin<R> {
         let app_handle = app.clone();
         let state_clone = storage_state.clone();
         tauri::async_runtime::spawn(async move {
-            #[cfg(feature = "storage")]
-            {
+                        {
                 let mut state = state_clone.lock().await;
                 if let Err(e) = state.initialize(&app_handle).await {
                     error!("Failed to initialize storage plugin: {}", e);
@@ -352,8 +333,7 @@ impl<R: Runtime> Plugin<R> for StoragePlugin<R> {
                 }
             }
             
-            #[cfg(not(feature = "storage"))]
-            {
+                    {
                 warn!("Storage feature not enabled");
             }
         });

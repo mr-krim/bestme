@@ -132,9 +132,9 @@ pub struct RecoveryManager {
 /// Recovery attempt record
 #[derive(Debug, Clone)]
 struct RecoveryAttempt {
-    timestamp: Instant,
-    error_type: String,
-    strategy: String,
+    _timestamp: Instant,
+    _error_type: String,
+    _strategy: String,
     success: bool,
     duration: Duration,
 }
@@ -227,9 +227,9 @@ impl RecoveryManager {
 
         // Record attempt
         self.record_attempt(RecoveryAttempt {
-            timestamp: Instant::now(),
-            error_type: format!("{:?}", error),
-            strategy: strategy_name.clone(),
+            _timestamp: Instant::now(),
+            _error_type: format!("{:?}", error),
+            _strategy: strategy_name.clone(),
             success,
             duration,
         }).await;
@@ -554,9 +554,9 @@ mod tests {
         // Add some attempts
         for i in 0..5 {
             manager.record_attempt(RecoveryAttempt {
-                timestamp: Instant::now(),
-                error_type: "TestError".to_string(),
-                strategy: "retry".to_string(),
+                _timestamp: Instant::now(),
+                _error_type: "TestError".to_string(),
+                _strategy: "retry".to_string(),
                 success: i % 2 == 0,
                 duration: Duration::from_millis(100),
             }).await;

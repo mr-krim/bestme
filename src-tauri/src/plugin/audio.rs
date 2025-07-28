@@ -2,13 +2,12 @@ use anyhow::Result;
 use log::{error, info, debug, warn};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tauri::{Manager, AppHandle, State, plugin::Plugin, Runtime, Emitter};
-use bestme::audio::capture::CaptureCommand;
+use tauri::{Manager, AppHandle, plugin::Plugin, Runtime, Emitter};
 use tokio::sync::mpsc;
 use std::marker::PhantomData;
 
 use bestme::audio::device::DeviceManager;
-use bestme::audio::capture::{CaptureManager, ThreadedCaptureManager, AudioData, AudioEvent};
+use bestme::audio::capture::{ThreadedCaptureManager, AudioEvent};
 use bestme::config::ConfigManager;
 
 use crate::plugin::TranscribeState;
@@ -264,7 +263,7 @@ impl<R: Runtime> Plugin<R> for AudioPlugin<R> {
     
     fn initialize(&mut self, app: &AppHandle<R>, _: serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
         info!("Initializing AudioPlugin...");
-        let audio_state = app.state::<Arc<Mutex<AudioState>>>();
+        let _audio_state = app.state::<Arc<Mutex<AudioState>>>();
         // Skip setting app handle for now - type mismatch between generic R and concrete Wry
         // TODO: Refactor AudioState to be generic over Runtime
         // audio_state.lock().set_app_handle(app.clone());

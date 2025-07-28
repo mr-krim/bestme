@@ -16,7 +16,7 @@ pub struct ModelSelector {
     model_service: Arc<ModelService>,
     text_analyzer: TextAnalyzer,
     capability_matcher: ModelCapabilityMatcher,
-    metrics_collector: Arc<MetricsCollector>,
+    _metrics_collector: Arc<MetricsCollector>,
     selection_cache: Arc<SelectionCache>,
     config: ModelSelectorConfig,
 }
@@ -142,7 +142,7 @@ impl ModelSelector {
             model_service,
             text_analyzer: TextAnalyzer::new(),
             capability_matcher: ModelCapabilityMatcher::new(),
-            metrics_collector,
+            _metrics_collector: metrics_collector,
             selection_cache: cache,
             config,
         }

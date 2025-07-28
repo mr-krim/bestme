@@ -1,35 +1,26 @@
-use anyhow::{Result, anyhow};
-use log::{info, error, debug, warn};
+use anyhow::Result;
+use log::{info, error};
 use parking_lot::Mutex;
-use std::{path::PathBuf, sync::Arc, collections::HashMap};
+use std::sync::Arc;
 use tauri::{AppHandle, State, plugin::Plugin, Runtime, Emitter};
-use tokio::sync::mpsc;
 use serde::Serialize;
 use std::collections::VecDeque;
-use regex;
 use chrono;
 use std::marker::PhantomData;
 
 use bestme::audio::voice_commands::{
     VoiceCommand,
-    VoiceCommandType,
     VoiceCommandConfig,
     VoiceCommandEvent,
     VoiceCommandManager as TauriVoiceCommandManager,
-    TextEditOperation,
     DeleteScope,
-    FormatOperation,
-    TextStyle,
     TextOperationHistory,
 };
 
 use bestme::audio::ai_voice_commands::{
     AIVoiceCommandProcessor,
-    AIVoiceCommandConfig,
-    InterpretedCommand,
 };
 
-use crate::plugin::TranscribeState;
 
 /// Maximum number of commands to keep in history
 const MAX_COMMAND_HISTORY: usize = 20;
@@ -166,7 +157,7 @@ impl VoiceCommandState {
         // Set up event handling for voice commands
         let commands_history = Arc::clone(&self.command_history);
         let last_command = Arc::clone(&self.last_command);
-        let is_enabled = Arc::clone(&self.is_enabled);
+        let _is_enabled = Arc::clone(&self.is_enabled);
         let app_handle = self.app_handle.clone();
         
         // For now, we'll process events synchronously
@@ -373,9 +364,9 @@ impl VoiceCommandState {
     pub fn apply_delete(&self, scope_name: &str) -> Result<String, String> {
         let manager = self.manager.lock();
         
-        if let Some(manager) = manager.as_ref() {
+        if let Some(_manager) = manager.as_ref() {
             // Match the scope name to a DeleteScope
-            let scope = match scope_name.to_lowercase().as_str() {
+            let _scope = match scope_name.to_lowercase().as_str() {
                 "word" => DeleteScope::LastWord,
                 "sentence" => DeleteScope::LastSentence,
                 "paragraph" => DeleteScope::LastParagraph,
@@ -395,7 +386,7 @@ impl VoiceCommandState {
     pub fn undo(&self) -> Result<String, String> {
         let manager = self.manager.lock();
         
-        if let Some(manager) = manager.as_ref() {
+        if let Some(_manager) = manager.as_ref() {
             // TODO: Implement undo functionality
             Err("Undo functionality not yet implemented".to_string())
             /*match manager.undo_last_operation() {
@@ -411,7 +402,7 @@ impl VoiceCommandState {
     pub fn redo(&self) -> Result<String, String> {
         let manager = self.manager.lock();
         
-        if let Some(manager) = manager.as_ref() {
+        if let Some(_manager) = manager.as_ref() {
             // TODO: Implement redo functionality
             Err("Redo functionality not yet implemented".to_string())
             /*match manager.redo_last_operation() {
@@ -443,7 +434,7 @@ impl<R: Runtime> Plugin<R> for VoiceCommandPlugin<R> {
         "voice_commands"
     }
     
-    fn initialize(&mut self, app: &AppHandle<R>, _: serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+    fn initialize(&mut self, _app: &AppHandle<R>, _: serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
         info!("Initializing voice command plugin");
         
         // Register commands

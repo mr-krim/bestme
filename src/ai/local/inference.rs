@@ -2,12 +2,12 @@ use crate::ai::{Result, EnhancementOptions, EnhancedText, Intent};
 use crate::ai::common::ModelConfig;
 
 pub struct InferenceEngine {
-    config: ModelConfig,
+    _config: ModelConfig,
 }
 
 impl InferenceEngine {
     pub fn new(config: ModelConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     pub async fn run_inference(
@@ -156,8 +156,8 @@ pub mod onnx_backend {
     use ort::{Environment, GraphOptimizationLevel, Session, SessionBuilder};
     
     pub struct ONNXInference {
-        session: Session,
-        tokenizer: tokenizers::Tokenizer,
+        _session: Session,
+        _tokenizer: tokenizers::Tokenizer,
     }
     
     impl ONNXInference {
@@ -185,7 +185,7 @@ pub mod onnx_backend {
             let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path)
                 .map_err(|e| AIError::ConfigError(e.to_string()))?;
             
-            Ok(Self { session, tokenizer })
+            Ok(Self { _session: session, _tokenizer: tokenizer })
         }
         
         pub async fn run(&self, _text: &str) -> Result<String> {

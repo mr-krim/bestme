@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub struct LocalAI {
-    config: ModelConfig,
+    _config: ModelConfig,
     model: Arc<RwLock<Option<Box<dyn LocalModel>>>>,
     processor: Arc<dyn crate::ai::common::TextProcessor>,
 }
@@ -22,7 +22,7 @@ pub struct LocalAI {
 impl LocalAI {
     pub fn new(config: ModelConfig) -> Self {
         Self {
-            config,
+            _config: config,
             model: Arc::new(RwLock::new(None)),
             processor: Arc::new(crate::ai::common::StandardTextProcessor),
         }

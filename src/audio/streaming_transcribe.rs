@@ -82,6 +82,7 @@ pub enum StreamingEvent {
 #[derive(Debug, Clone, PartialEq)]
 enum StreamingState {
     Idle,
+    #[allow(dead_code)]
     Listening,
     Processing,
     Speaking,
@@ -121,7 +122,7 @@ pub struct StreamingTranscriptionProcessor {
     hallucination_detector: Arc<HallucinationDetector>,
     
     /// Sample rate
-    sample_rate: usize,
+    _sample_rate: usize,
 }
 
 impl StreamingTranscriptionProcessor {
@@ -160,7 +161,7 @@ impl StreamingTranscriptionProcessor {
             last_partial_update: std::time::Instant::now(),
             event_sender,
             hallucination_detector: Arc::new(HallucinationDetector::new()),
-            sample_rate,
+            _sample_rate: sample_rate,
         }
     }
     
@@ -391,7 +392,7 @@ pub struct StreamingTranscriptionManager {
     event_tx: mpsc::Sender<StreamingEvent>,
     
     /// Processing task handle
-    task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    _task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 #[derive(Debug)]
@@ -413,7 +414,7 @@ impl StreamingTranscriptionManager {
             control_tx,
             control_rx: Arc::new(Mutex::new(control_rx)),
             event_tx,
-            task_handle: Arc::new(Mutex::new(None)),
+            _task_handle: Arc::new(Mutex::new(None)),
         };
         
         (manager, event_rx)

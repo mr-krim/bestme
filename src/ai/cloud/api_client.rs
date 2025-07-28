@@ -183,14 +183,15 @@ struct RequestyRequest {
 #[derive(Deserialize)]
 struct RequestyResponse {
     output: String,
-    usage: Option<RequestyUsage>,
+    _usage: Option<RequestyUsage>,
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct RequestyUsage {
-    prompt_tokens: u32,
-    completion_tokens: u32,
-    total_tokens: u32,
+    _prompt_tokens: u32,
+    _completion_tokens: u32,
+    _total_tokens: u32,
 }
 
 #[async_trait]

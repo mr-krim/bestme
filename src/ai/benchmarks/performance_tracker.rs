@@ -67,9 +67,9 @@ struct ModelMetrics {
 #[derive(Debug, Clone)]
 struct LatencyMeasurement {
     latency_ms: u64,
-    timestamp: Instant,
-    input_size: usize,
-    output_size: usize,
+    _timestamp: Instant,
+    _input_size: usize,
+    _output_size: usize,
 }
 
 impl PerformanceTracker {
@@ -101,9 +101,9 @@ impl PerformanceTracker {
         // Add latency measurement
         let measurement = LatencyMeasurement {
             latency_ms: latency.as_millis() as u64,
-            timestamp: Instant::now(),
-            input_size,
-            output_size,
+            _timestamp: Instant::now(),
+            _input_size: input_size,
+            _output_size: output_size,
         };
         
         model_metrics.latencies.push_back(measurement);

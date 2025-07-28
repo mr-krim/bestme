@@ -187,7 +187,7 @@ impl InjectionConfig {
 pub struct InjectionManager {
     injector: Box<dyn TextInjector>,
     config: InjectionConfig,
-    context_detector: ContextDetector,
+    _context_detector: ContextDetector,
 }
 
 impl InjectionManager {
@@ -199,7 +199,7 @@ impl InjectionManager {
         Ok(Self {
             injector,
             config,
-            context_detector,
+            _context_detector: context_detector,
         })
     }
     

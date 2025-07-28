@@ -9,7 +9,9 @@ mod settings;
 mod icons;
 
 use anyhow::Result;
-use log::{info, warn};
+use log::info;
+#[allow(unused_imports)]
+use log::warn;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -128,7 +130,7 @@ impl Gui {
                 let mut msg = MSG::default();
                 // Use GetMessageA with proper error handling
                 while GetMessageA(&mut msg, None, 0, 0).as_bool() {
-                    TranslateMessage(&msg);
+                    let _ = TranslateMessage(&msg);
                     DispatchMessageA(&msg);
                 }
             }

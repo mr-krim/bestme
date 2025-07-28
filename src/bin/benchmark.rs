@@ -9,7 +9,6 @@ use bestme::config::{Config, WhisperModelSize};
 use clap::{Parser, ValueEnum};
 use log::{info, warn};
 use std::time::Instant;
-use tokio::sync::mpsc;
 
 #[derive(Parser, Debug)]
 #[clap(name = "BestMe Benchmark", version = "1.0", about = "Benchmark transcription performance")]

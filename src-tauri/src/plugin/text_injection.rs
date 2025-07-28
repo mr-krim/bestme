@@ -11,7 +11,6 @@ use tauri::{
 use tokio::sync::Mutex;
 
 // Conditionally import text injection types
-#[cfg(feature = "text-injection")]
 use bestme::text_injection::{
     InjectionManager,
 };
@@ -23,30 +22,21 @@ use bestme::text_injection::{
 
 /// Text injection state for the Tauri plugin
 pub struct TextInjectionState {
-    #[cfg(feature = "text-injection")]
-    manager: Option<Arc<Mutex<InjectionManager>>>,
-    #[cfg(feature = "text-injection")]
-    config: Arc<Mutex<InjectionConfig>>,
-    #[cfg(not(feature = "text-injection"))]
-    config: Arc<Mutex<()>>,
+        manager: Option<Arc<Mutex<InjectionManager>>>,
+        config: Arc<Mutex<InjectionConfig>>,
     enabled: Arc<Mutex<bool>>,
 }
 
 impl TextInjectionState {
     pub fn new() -> Self {
         Self {
-            #[cfg(feature = "text-injection")]
-            manager: None,
-            #[cfg(feature = "text-injection")]
-            config: Arc::new(Mutex::new(InjectionConfig::default())),
-            #[cfg(not(feature = "text-injection"))]
-            config: Arc::new(Mutex::new(())),
+                        manager: None,
+                        config: Arc::new(Mutex::new(InjectionConfig::default())),
             enabled: Arc::new(Mutex::new(false)),
         }
     }
     
-    #[cfg(feature = "text-injection")]
-    pub async fn initialize(&mut self) -> Result<()> {
+        pub async fn initialize(&mut self) -> Result<()> {
         let config = self.config.lock().await.clone();
         match InjectionManager::new(config) {
             Ok(manager) => {
@@ -62,8 +52,7 @@ impl TextInjectionState {
         }
     }
     
-    #[cfg(feature = "text-injection")]
-    pub async fn get_manager(&self) -> Option<Arc<Mutex<InjectionManager>>> {
+        pub async fn get_manager(&self) -> Option<Arc<Mutex<InjectionManager>>> {
         self.manager.clone()
     }
 }
@@ -72,66 +61,49 @@ impl TextInjectionState {
 #[tauri::command]
 pub async fn enable_text_injection(
     enabled: bool,
-    state: State<'_, Arc<Mutex<TextInjectionState>>>,
+    _state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
-    #[cfg(feature = "text-injection")]
-    {
-        let mut state = state.lock().await;
-        
-        if enabled && state.manager.is_none() {
-            // Initialize if not already initialized
-            state.initialize().await.map_err(|e| e.to_string())?;
-        }
-        
-        *state.enabled.lock().await = enabled;
-        info!("Text injection {}", if enabled { "enabled" } else { "disabled" });
-        Ok(())
+    let mut state = _state.lock().await;
+    
+    if enabled && state.manager.is_none() {
+        // Initialize if not already initialized
+        state.initialize().await.map_err(|e| e.to_string())?;
     }
     
-    #[cfg(not(feature = "text-injection"))]
-    {
-        Err("Text injection feature not enabled".to_string())
-    }
+    *state.enabled.lock().await = enabled;
+    info!("Text injection {}", if enabled { "enabled" } else { "disabled" });
+    Ok(())
 }
 
 /// Inject text into the active application
 #[tauri::command]
 pub async fn inject_text(
     text: String,
-    state: State<'_, Arc<Mutex<TextInjectionState>>>,
+    _state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
-    #[cfg(feature = "text-injection")]
-    {
-        let state = state.lock().await;
-        
-        if !*state.enabled.lock().await {
-            return Err("Text injection is disabled".to_string());
-        }
-        
-        if let Some(manager) = state.get_manager().await {
-            let manager = manager.lock().await;
-            manager.inject_text(&text).await.map_err(|e| e.to_string())?;
-            debug!("Injected text: {} chars", text.len());
-            Ok(())
-        } else {
-            Err("Text injection not initialized".to_string())
-        }
+    let state = _state.lock().await;
+    
+    if !*state.enabled.lock().await {
+        return Err("Text injection is disabled".to_string());
     }
     
-    #[cfg(not(feature = "text-injection"))]
-    {
-        Err("Text injection feature not enabled".to_string())
+    if let Some(manager) = state.get_manager().await {
+        let manager = manager.lock().await;
+        manager.inject_text(&text).await.map_err(|e| e.to_string())?;
+        debug!("Injected text: {} chars", text.len());
+        Ok(())
+    } else {
+        Err("Text injection not initialized".to_string())
     }
 }
 
 /// Get the current active window information
 #[tauri::command]
 pub async fn get_active_window(
-    state: State<'_, Arc<Mutex<TextInjectionState>>>,
+    _state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<WindowInfo, String> {
-    #[cfg(feature = "text-injection")]
-    {
-        let state = state.lock().await;
+        {
+        let state = _state.lock().await;
         
         if let Some(manager) = state.get_manager().await {
             let manager = manager.lock().await;
@@ -159,11 +131,10 @@ pub async fn get_active_window(
 /// Check text injection permissions
 #[tauri::command]
 pub async fn check_injection_permissions(
-    state: State<'_, Arc<Mutex<TextInjectionState>>>,
+    _state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<PermissionStatus, String> {
-    #[cfg(feature = "text-injection")]
-    {
-        let state = state.lock().await;
+        {
+        let state = _state.lock().await;
         
         if let Some(manager) = state.get_manager().await {
             let manager = manager.lock().await;
@@ -195,11 +166,10 @@ pub async fn check_injection_permissions(
 /// Request necessary permissions for text injection
 #[tauri::command]
 pub async fn request_injection_permissions(
-    state: State<'_, Arc<Mutex<TextInjectionState>>>,
+    _state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
-    #[cfg(feature = "text-injection")]
-    {
-        let state = state.lock().await;
+        {
+        let state = _state.lock().await;
         
         if let Some(manager) = state.get_manager().await {
             let manager = manager.lock().await;
@@ -220,11 +190,10 @@ pub async fn request_injection_permissions(
 #[tauri::command]
 pub async fn update_injection_config(
     config: InjectionConfig,
-    state: State<'_, Arc<Mutex<TextInjectionState>>>,
+    _state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
-    #[cfg(feature = "text-injection")]
-    {
-        let mut state = state.lock().await;
+        {
+        let mut state = _state.lock().await;
         *state.config.lock().await = config.clone();
         
         // Reinitialize with new config if already initialized
@@ -246,11 +215,10 @@ pub async fn update_injection_config(
 #[tauri::command]
 pub async fn set_injection_mode(
     mode: InjectionMode,
-    state: State<'_, Arc<Mutex<TextInjectionState>>>,
+    _state: State<'_, Arc<Mutex<TextInjectionState>>>,
 ) -> Result<(), String> {
-    #[cfg(feature = "text-injection")]
-    {
-        let state = state.lock().await;
+        {
+        let state = _state.lock().await;
         let mut config = state.config.lock().await;
         config.default_mode = mode;
         
@@ -289,8 +257,7 @@ impl<R: Runtime> Plugin<R> for TextInjectionPlugin<R> {
         // Initialize in background
         let state_clone = injection_state.clone();
         tauri::async_runtime::spawn(async move {
-            #[cfg(feature = "text-injection")]
-            {
+                        {
                 let mut state = state_clone.lock().await;
                 if let Err(e) = state.initialize().await {
                     error!("Failed to initialize text injection plugin: {}", e);
@@ -313,5 +280,4 @@ impl<R: Runtime> Plugin<R> for TextInjectionPlugin<R> {
 }
 
 // Re-export the types needed by the UI
-#[cfg(feature = "text-injection")]
 pub use bestme::text_injection::{InjectionConfig as TextInjectionConfig, InjectionMode as TextInjectionMode};

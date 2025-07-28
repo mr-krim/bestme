@@ -373,6 +373,7 @@ impl CustomModelManager {
     }
     
     /// Format parameter count
+    #[allow(dead_code)]
     fn format_parameters(&self, count: u64) -> String {
         if count >= 1_000_000_000 {
             format!("{:.1}B", count as f64 / 1_000_000_000.0)

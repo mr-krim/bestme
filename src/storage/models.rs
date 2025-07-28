@@ -159,6 +159,7 @@ impl Session {
     }
     
     /// Check if session is active
+    #[allow(dead_code)]
     pub fn is_active(&self) -> bool {
         self.ended_at.is_none()
     }

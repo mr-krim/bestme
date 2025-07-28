@@ -9,7 +9,7 @@ pub struct OnnxGrammarModel {
     session: Arc<ort::Session>,
     tokenizer: Arc<tokenizers::Tokenizer>,
     model_info: ModelInfo,
-    max_length: usize,
+    _max_length: usize,
 }
 
 impl OnnxGrammarModel {
@@ -35,7 +35,7 @@ impl OnnxGrammarModel {
             session,
             tokenizer: Arc::new(tokenizer),
             model_info,
-            max_length: 512,
+            _max_length: 512,
         })
     }
 

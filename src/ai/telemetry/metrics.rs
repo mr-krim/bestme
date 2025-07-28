@@ -163,7 +163,7 @@ impl ModelMetricsCollector {
         
         RequestTracker {
             collector: self,
-            start_time: Instant::now(),
+            _start_time: Instant::now(),
         }
     }
     
@@ -197,7 +197,7 @@ impl ModelMetricsCollector {
 /// Request tracker for automatic duration measurement
 pub struct RequestTracker<'a> {
     collector: &'a ModelMetricsCollector,
-    start_time: Instant,
+    _start_time: Instant,
 }
 
 impl<'a> Drop for RequestTracker<'a> {
@@ -209,7 +209,7 @@ impl<'a> Drop for RequestTracker<'a> {
 
 /// System-wide metrics collector
 pub struct SystemMetricsCollector {
-    meter: Meter,
+    _meter: Meter,
     
     // System metrics
     cpu_usage: Histogram<f64>,
@@ -226,7 +226,7 @@ impl SystemMetricsCollector {
     /// Create a new system metrics collector
     pub fn new(meter: Meter) -> Self {
         Self {
-            meter: meter.clone(),
+            _meter: meter.clone(),
             
             cpu_usage: meter
                 .f64_histogram("system.cpu.usage")
