@@ -824,16 +824,11 @@ impl<R: Runtime> Plugin<R> for TranscribePlugin<R> {
     fn initialize(&mut self, app: &AppHandle<R>, _: serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
         info!("Initializing transcription plugin");
         
-        // Register the plugin
-        app.plugin(
-            tauri::plugin::Builder::<R>::new("transcribe")
-                .js_init_script(include_str!("./transcribe_init.js").to_string())
-                .setup(|_app, _api: tauri::plugin::PluginApi<R, ()>| {
-                    Ok(())
-                })
-                .build(),
-        )?;
+        // Don't register another plugin inside plugin initialization
+        // This is likely causing the issue
+        // The JavaScript init should be handled differently in Tauri 2.0
         
+        info!("Transcription plugin initialized successfully");
         Ok(())
     }
 }

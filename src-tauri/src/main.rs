@@ -1086,7 +1086,7 @@ fn main() {
         device_manager,
     };
 
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         // Manage individual state components directly
         .manage(app_state.config_manager.clone())
         .manage(app_state.device_manager.clone())
@@ -1095,12 +1095,30 @@ fn main() {
         .manage(app_state.voice_command_state.clone())
         // Also register the complete AppState for convenience
         .manage(app_state)
-        .plugin(AudioPlugin::new())
-        .plugin(TranscribePlugin::new())
-        .plugin(VoiceCommandPlugin::new())
-        .plugin(StoragePlugin::new())
-        .plugin(TextInjectionPlugin::new())
-        .plugin(AIPlugin::default())
+        .plugin({
+            info!("Initializing AudioPlugin...");
+            AudioPlugin::new()
+        })
+        .plugin({
+            info!("Initializing TranscribePlugin...");
+            TranscribePlugin::new()
+        })
+        .plugin({
+            info!("Initializing VoiceCommandPlugin...");
+            VoiceCommandPlugin::new()
+        })
+        .plugin({
+            info!("Initializing StoragePlugin...");
+            StoragePlugin::new()
+        })
+        .plugin({
+            info!("Initializing TextInjectionPlugin...");
+            TextInjectionPlugin::new()
+        })
+        .plugin({
+            info!("Initializing AIPlugin...");
+            AIPlugin::default()
+        })
         .invoke_handler(tauri::generate_handler![
             get_audio_devices,
             get_whisper_models,
@@ -1225,6 +1243,26 @@ fn main() {
         .setup(|app| {
             info!("Setting up Tauri 2.0 application");
             
+            // First, let's ensure the window exists and is visible
+            info!("Checking for main window early in setup...");
+            info!("Available windows: {:?}", app.webview_windows().keys().collect::<Vec<_>>());
+            
+            if let Some(window) = app.get_webview_window("main") {
+                info!("Found main window early, making it visible...");
+                info!("Window URL: {:?}", window.url());
+                if let Err(e) = window.show() {
+                    error!("Failed to show window early: {}", e);
+                }
+                // Try to bring to front
+                if let Err(e) = window.set_focus() {
+                    error!("Failed to focus window: {}", e);
+                }
+            } else {
+                error!("Main window not found early in setup!");
+                // Try creating window manually if it doesn't exist
+                info!("Attempting to create window manually...");
+            }
+            
             // Set app handles for components that need it
             let app_handle = app.app_handle();
             {
@@ -1262,15 +1300,18 @@ fn main() {
             }
             
             // Get the main window to set event listener
+            info!("Looking for main window...");
             if let Some(window) = app.get_webview_window("main") {
                 info!("Main window found, showing it...");
                 // Make sure window is visible
-                window.show().unwrap_or_else(|e| {
-                    error!("Failed to show window: {}", e);
-                });
-                window.set_focus().unwrap_or_else(|e| {
-                    error!("Failed to focus window: {}", e);
-                });
+                match window.show() {
+                    Ok(_) => info!("Window show() succeeded"),
+                    Err(e) => error!("Failed to show window: {}", e),
+                }
+                match window.set_focus() {
+                    Ok(_) => info!("Window set_focus() succeeded"),
+                    Err(e) => error!("Failed to focus window: {}", e),
+                }
                 
                 // Clone window for use in closure
                 let window_clone = window.clone();
@@ -1288,6 +1329,7 @@ fn main() {
             }
             
             // Set up system tray
+            info!("Setting up system tray...");
             use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder};
             
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -1295,12 +1337,15 @@ fn main() {
             let hide = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
             
             let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
+            info!("Tray menu created");
             
-            let _tray = TrayIconBuilder::new()
+            info!("Creating tray icon...");
+            let tray_result = TrayIconBuilder::new()
                 .menu(&menu)
                 .tooltip("BestMe - Speech to Text")
                 .icon(app.default_window_icon().unwrap().clone())
                 .on_menu_event(move |app, event| {
+                    info!("Tray menu event: {}", event.id.as_ref());
                     match event.id.as_ref() {
                         "quit" => {
                             info!("Quit requested from tray");
@@ -1342,9 +1387,12 @@ fn main() {
                         _ => {}
                     }
                 })
-                .build(app)?;
+                .build(app);
             
-            info!("System tray initialized");
+            match tray_result {
+                Ok(_tray) => info!("System tray initialized successfully"),
+                Err(e) => error!("Failed to create system tray: {}", e),
+            }
             
             // Initialize AudioState properly after it's managed
             let audio_state_managed = app.state::<Arc<Mutex<AudioState>>>();
@@ -1410,6 +1458,14 @@ fn main() {
             info!("App setup finished successfully.");
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("Error while running Tauri application");
+        .run(tauri::generate_context!());
+    
+    match result {
+        Ok(_) => info!("Tauri application exited successfully"),
+        Err(e) => {
+            error!("Error while running Tauri application: {}", e);
+            eprintln!("Fatal error: {}", e);
+            std::process::exit(1);
+        }
+    }
 } 

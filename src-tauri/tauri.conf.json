@@ -13,6 +13,7 @@
     },
     "windows": [
       {
+        "label": "main",
         "fullscreen": false,
         "resizable": true,
         "title": "BestMe - Speech to Text",
