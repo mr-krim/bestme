@@ -14,6 +14,7 @@
     "windows": [
       {
         "label": "main",
+        "url": "index.html",
         "fullscreen": false,
         "resizable": true,
         "title": "BestMe - Speech to Text",

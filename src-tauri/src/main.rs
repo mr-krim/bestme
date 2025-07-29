@@ -1248,19 +1248,24 @@ fn main() {
             info!("Available windows: {:?}", app.webview_windows().keys().collect::<Vec<_>>());
             
             if let Some(window) = app.get_webview_window("main") {
-                info!("Found main window early, making it visible...");
+                info!("Found main window early, checking URL...");
                 info!("Window URL: {:?}", window.url());
-                if let Err(e) = window.show() {
-                    error!("Failed to show window early: {}", e);
-                }
-                // Try to bring to front
-                if let Err(e) = window.set_focus() {
-                    error!("Failed to focus window: {}", e);
+                
+                // Don't show the window if it's still on about:blank
+                if window.url().map(|u| u.as_str() != "about:blank").unwrap_or(false) {
+                    info!("Window has proper URL, making it visible...");
+                    if let Err(e) = window.show() {
+                        error!("Failed to show window early: {}", e);
+                    }
+                    // Try to bring to front
+                    if let Err(e) = window.set_focus() {
+                        error!("Failed to focus window: {}", e);
+                    }
+                } else {
+                    info!("Window still on about:blank, will show later");
                 }
             } else {
                 error!("Main window not found early in setup!");
-                // Try creating window manually if it doesn't exist
-                info!("Attempting to create window manually...");
             }
             
             // Set app handles for components that need it
@@ -1302,26 +1307,49 @@ fn main() {
             // Get the main window to set event listener
             info!("Looking for main window...");
             if let Some(window) = app.get_webview_window("main") {
-                info!("Main window found, showing it...");
-                // Make sure window is visible
-                match window.show() {
-                    Ok(_) => info!("Window show() succeeded"),
-                    Err(e) => error!("Failed to show window: {}", e),
-                }
-                match window.set_focus() {
-                    Ok(_) => info!("Window set_focus() succeeded"),
-                    Err(e) => error!("Failed to focus window: {}", e),
-                }
+                info!("Main window found, setting up navigation handler...");
+                
+                // Clone window for the navigation handler
+                let window_clone_nav = window.clone();
+                
+                // Listen for when the window navigates away from about:blank
+                window.on_navigation(move |url| {
+                    info!("Window navigated to: {}", url);
+                    if !url.starts_with("about:") {
+                        info!("Window loaded actual content, showing it now");
+                        window_clone_nav.show().unwrap_or_else(|e| {
+                            error!("Failed to show window after navigation: {}", e);
+                        });
+                        window_clone_nav.set_focus().unwrap_or_else(|e| {
+                            error!("Failed to focus window after navigation: {}", e);
+                        });
+                    }
+                    true // Allow navigation
+                });
                 
                 // Clone window for use in closure
                 let window_clone = window.clone();
                 // Setup window events
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        info!("Window close requested");
-                        // Hide the window instead of closing it
-                        window_clone.hide().unwrap();
-                        api.prevent_close();
+                    match event {
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            info!("Window close requested");
+                            // Hide the window instead of closing it
+                            window_clone.hide().unwrap();
+                            api.prevent_close();
+                        }
+                        tauri::WindowEvent::Destroyed => {
+                            error!("Window was destroyed!");
+                        }
+                        tauri::WindowEvent::Resized(_) => {
+                            // Normal resize, ignore
+                        }
+                        tauri::WindowEvent::Moved(_) => {
+                            // Normal move, ignore
+                        }
+                        _ => {
+                            debug!("Window event: {:?}", event);
+                        }
                     }
                 });
             } else {
@@ -1395,10 +1423,14 @@ fn main() {
             }
             
             // Initialize AudioState properly after it's managed
+            info!("Initializing AudioState...");
             let audio_state_managed = app.state::<Arc<Mutex<AudioState>>>();
-            if let Err(e) = audio_state_managed.lock().initialize() {
-                 error!("Failed to initialize AudioState during setup: {}", e);
-                 // Decide how to handle this error (e.g., show error to user, exit?)
+            match audio_state_managed.lock().initialize() {
+                Ok(_) => info!("AudioState initialized successfully"),
+                Err(e) => {
+                    error!("Failed to initialize AudioState during setup: {}", e);
+                    // Continue anyway - audio might not be critical
+                }
             }
 
             // Set AppHandle for voice commands state AFTER getting it from managed state
