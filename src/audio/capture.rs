@@ -247,10 +247,10 @@ impl CaptureManager {
         info!("Using audio config: {:?}", config);
         debug!("Sample format: {:?}", config.sample_format());
         
-        // Create a config to use for the stream
+        // Create a config to use for the stream - use device's native sample rate
         let stream_config = cpal::StreamConfig {
             channels: config.channels(),
-            sample_rate: cpal::SampleRate(self.config.sample_rate),
+            sample_rate: config.sample_rate(),
             buffer_size: match config.buffer_size() {
                 cpal::SupportedBufferSize::Range { min: _, max: _ } => cpal::BufferSize::Default,
                 cpal::SupportedBufferSize::Unknown => cpal::BufferSize::Default,
