@@ -5,7 +5,8 @@
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
-    "frontendDist": "../ui/dist"
+    "frontendDist": "../ui/dist",
+    "withGlobalTauri": true
   },
   "app": {
     "security": {
@@ -20,7 +21,7 @@
         "title": "BestMe - Speech to Text",
         "width": 960,
         "height": 720,
-        "visible": true,
+        "visible": false,
         "center": true,
         "decorations": true,
         "alwaysOnTop": false,

@@ -972,6 +972,26 @@ struct AppState {
 }
 
 fn main() {
+    // Set up panic hook to log panics
+    std::panic::set_hook(Box::new(|panic_info| {
+        let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s
+        } else {
+            "Unknown panic"
+        };
+        
+        let location = if let Some(location) = panic_info.location() {
+            format!(" at {}:{}:{}", location.file(), location.line(), location.column())
+        } else {
+            String::new()
+        };
+        
+        eprintln!("PANIC{}: {}", location, msg);
+        error!("PANIC{}: {}", location, msg);
+    }));
+    
     // Initialize logging with environment variables and file output
     // Set RUST_LOG=debug to enable debug logging
     use std::fs::OpenOptions;
@@ -1313,9 +1333,24 @@ fn main() {
                 // Let's just show it after a small delay to ensure content is loaded
                 let window_clone_nav = window.clone();
                 
+                // Force navigation to the index.html
+                info!("Navigating window to index.html...");
+                match tauri::Url::parse("tauri://localhost/index.html") {
+                    Ok(url) => {
+                        if let Err(e) = window.navigate(url) {
+                            error!("Failed to navigate to index.html: {}", e);
+                        } else {
+                            info!("Successfully navigated to index.html");
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to parse tauri URL: {}", e);
+                    }
+                }
+                
                 // Use a timer to show the window after content loads
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
                     info!("Showing window after delay to ensure content is loaded");
                     window_clone_nav.show().unwrap_or_else(|e| {
                         error!("Failed to show window after delay: {}", e);
