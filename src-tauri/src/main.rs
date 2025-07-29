@@ -1350,14 +1350,21 @@ fn main() {
                 
                 // Use a timer to show the window after content loads
                 std::thread::spawn(move || {
+                    info!("Window show timer started, waiting 1 second...");
                     std::thread::sleep(std::time::Duration::from_millis(1000));
-                    info!("Showing window after delay to ensure content is loaded");
-                    window_clone_nav.show().unwrap_or_else(|e| {
-                        error!("Failed to show window after delay: {}", e);
-                    });
-                    window_clone_nav.set_focus().unwrap_or_else(|e| {
-                        error!("Failed to focus window after delay: {}", e);
-                    });
+                    info!("Timer expired, showing window now");
+                    
+                    match window_clone_nav.show() {
+                        Ok(_) => info!("Window successfully shown after delay"),
+                        Err(e) => error!("Failed to show window after delay: {}", e),
+                    }
+                    
+                    match window_clone_nav.set_focus() {
+                        Ok(_) => info!("Window successfully focused"),
+                        Err(e) => error!("Failed to focus window after delay: {}", e),
+                    }
+                    
+                    info!("Window show thread completed");
                 });
                 
                 // Clone window for use in closure
@@ -1508,7 +1515,8 @@ fn main() {
                 info!("Auto-starting recording as per config...");
                 // Use the managed audio state
                 let audio_state_clone = Arc::clone(&audio_state_managed);
-                tokio::spawn(async move {
+                // Start recording in a separate thread to avoid Tokio runtime issues
+                std::thread::spawn(move || {
                      let audio_state_lock = audio_state_clone.lock();
                      if let Err(e) = audio_state_lock.start_recording() {
                          error!("Failed to auto-start recording: {}", e);
