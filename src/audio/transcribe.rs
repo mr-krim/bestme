@@ -17,7 +17,7 @@ use whisper_rs::{WhisperContext, FullParams, SamplingStrategy, WhisperContextPar
 
 /// Buffer size for audio accumulation before processing
 const AUDIO_BUFFER_SECONDS: usize = 3;
-const SAMPLE_RATE: usize = 16000;
+const TARGET_SAMPLE_RATE: usize = 16000; // Whisper's expected sample rate
 
 /// Custom error types for transcription
 #[derive(Error, Debug)]
@@ -262,7 +262,40 @@ impl TranscriptionManager {
         Ok(())
     }
     
-    /// Process audio data for transcription
+    /// Process audio data with proper sample rate handling
+    pub async fn process_audio_with_rate(&self, audio_data: &crate::audio::capture::AudioData) -> Result<Option<String>> {
+        if self.state != TranscriptionState::Transcribing {
+            return Ok(None);
+        }
+        
+        // Convert to Whisper's expected format (16kHz, mono)
+        let processed_samples = audio_data.to_whisper_input(TARGET_SAMPLE_RATE as u32);
+        
+        // Create a scope to ensure the lock is released before the await
+        let buffer_clone = {
+            let mut buffer = self.audio_buffer.lock();
+            buffer.extend_from_slice(&processed_samples);
+            
+            // If buffer is large enough, process it
+            if buffer.len() >= AUDIO_BUFFER_SECONDS * TARGET_SAMPLE_RATE {
+                let buffer_clone = buffer.clone();
+                buffer.clear();
+                Some(buffer_clone)
+            } else {
+                None
+            }
+            // Lock is released here when buffer goes out of scope
+        };
+        
+        // Process the audio buffer if we got a clone
+        if let Some(buffer) = buffer_clone {
+            self.transcribe_audio(&buffer).await
+        } else {
+            Ok(None)
+        }
+    }
+    
+    /// Process audio data for transcription (legacy method)
     pub async fn process_audio(&self, audio_data: &[f32]) -> Result<Option<String>> {
         if self.state != TranscriptionState::Transcribing {
             return Ok(None);
@@ -273,8 +306,8 @@ impl TranscriptionManager {
             let mut buffer = self.audio_buffer.lock();
             buffer.extend_from_slice(audio_data);
             
-            // If buffer is large enough, process it
-            if buffer.len() >= AUDIO_BUFFER_SECONDS * SAMPLE_RATE {
+            // If buffer is large enough, process it (using target sample rate)
+            if buffer.len() >= AUDIO_BUFFER_SECONDS * TARGET_SAMPLE_RATE {
                 let buffer_clone = buffer.clone();
                 buffer.clear();
                 Some(buffer_clone)
