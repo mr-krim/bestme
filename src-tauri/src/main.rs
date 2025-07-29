@@ -1333,20 +1333,8 @@ fn main() {
                 // Let's just show it after a small delay to ensure content is loaded
                 let window_clone_nav = window.clone();
                 
-                // Force navigation to the index.html
-                info!("Navigating window to index.html...");
-                match tauri::Url::parse("tauri://localhost/index.html") {
-                    Ok(url) => {
-                        if let Err(e) = window.navigate(url) {
-                            error!("Failed to navigate to index.html: {}", e);
-                        } else {
-                            info!("Successfully navigated to index.html");
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to parse tauri URL: {}", e);
-                    }
-                }
+                // Remove the navigation attempt - let Tauri handle it based on config
+                info!("Window will load content based on tauri.conf.json settings");
                 
                 // Use a timer to show the window after content loads
                 std::thread::spawn(move || {
