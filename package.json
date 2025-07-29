@@ -8,7 +8,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "test": "cd ui && npm test"
+    "test": "cd ui && npm test",
+    "install:all": "npm install && cd ui && npm install"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0"

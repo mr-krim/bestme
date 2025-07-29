@@ -1,9 +1,9 @@
 {
   "$schema": "https://cdn.jsdelivr.net/gh/tauri-apps/tauri@55d373/core/tauri-config-schema/schema.json",
-  "identifier": "com.bestme.app",
+  "identifier": "com.bestme.desktop",
   "build": {
-    "beforeBuildCommand": "cd ../ui && npm run build",
-    "beforeDevCommand": "cd ../ui && npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../ui/dist"
   },
