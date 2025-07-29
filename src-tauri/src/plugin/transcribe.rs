@@ -278,8 +278,9 @@ impl TranscribeState {
         // Check offline mode setting first
         let offline_enabled = self.config_manager.lock().get_config().general.offline_mode;
         if offline_enabled {
-            error!("Offline mode is enabled. Cannot download model: {:?}", model_size);
-            return Err(anyhow!("Download prevented: Offline mode is enabled."));
+            warn!("Offline mode is enabled, but model download is required for transcription to work");
+            // For now, we'll allow model downloads even in offline mode since they're essential
+            // In the future, we could add a user prompt to confirm
         }
 
         let model_name = self.get_model_size_string(model_size);
