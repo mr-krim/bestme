@@ -28,7 +28,7 @@
     "trayIcon": {
       "iconPath": "icons/icon.ico",
       "iconAsTemplate": false,
-      "showMenuOnLeftClick": false
+      "showMenuOnLeftClick": true
     }
   },
   "bundle": {

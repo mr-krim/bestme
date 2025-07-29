@@ -1320,6 +1320,28 @@ fn main() {
                         _ => {}
                     }
                 })
+                .on_tray_icon_event(|tray, event| {
+                    use tauri::tray::TrayIconEvent;
+                    match event {
+                        TrayIconEvent::Click { button, button_state, .. } => {
+                            if button == tauri::tray::MouseButton::Left && button_state == tauri::tray::MouseButtonState::Up {
+                                // Show window on left click
+                                if let Some(window) = tray.app_handle().get_webview_window("main") {
+                                    window.show().unwrap();
+                                    window.set_focus().unwrap();
+                                }
+                            }
+                        }
+                        TrayIconEvent::DoubleClick { .. } => {
+                            // Also show on double click
+                            if let Some(window) = tray.app_handle().get_webview_window("main") {
+                                window.show().unwrap();
+                                window.set_focus().unwrap();
+                            }
+                        }
+                        _ => {}
+                    }
+                })
                 .build(app)?;
             
             info!("System tray initialized");
