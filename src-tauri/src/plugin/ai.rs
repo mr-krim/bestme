@@ -179,7 +179,7 @@ pub async fn enhance_text(
 
 #[tauri::command]
 pub async fn list_available_models(
-    _state: State<'_, AIState>,
+    state: State<'_, AIState>,
 ) -> Result<Vec<serde_json::Value>, String> {
     // Initialize model service if needed
     let mut service_guard = state.model_service.write().await;
@@ -248,7 +248,7 @@ pub async fn download_model(
 
 #[tauri::command]
 pub async fn list_downloaded_models(
-    _state: State<'_, AIState>,
+    state: State<'_, AIState>,
 ) -> Result<Vec<String>, String> {
     // Initialize model service if needed
     let mut service_guard = state.model_service.write().await;
@@ -268,7 +268,7 @@ pub async fn list_downloaded_models(
 
 #[tauri::command]
 pub async fn summarize_text(
-    _state: State<'_, AIState>,
+    state: State<'_, AIState>,
     text: String,
     max_length: usize,
 ) -> Result<String, String> {
@@ -282,7 +282,7 @@ pub async fn summarize_text(
 
 #[tauri::command]
 pub async fn transform_style(
-    _state: State<'_, AIState>,
+    state: State<'_, AIState>,
     text: String,
     target_style: String,
 ) -> Result<String, String> {
@@ -296,7 +296,7 @@ pub async fn transform_style(
 
 #[tauri::command]
 pub async fn translate_text(
-    _state: State<'_, AIState>,
+    state: State<'_, AIState>,
     text: String,
     target_language: String,
     source_language: Option<String>,
@@ -311,7 +311,7 @@ pub async fn translate_text(
 
 #[tauri::command]
 pub async fn get_cloud_usage(
-    _state: State<'_, AIState>,
+    state: State<'_, AIState>,
 ) -> Result<bestme::ai::cloud::CloudAIUsage, String> {
     let cloud_guard = state.cloud_ai.read().await;
     let cloud_ai = cloud_guard.as_ref()
@@ -417,7 +417,7 @@ pub async fn get_model_download_progress(
 
 #[tauri::command]
 pub async fn get_model_performance(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     model_id: String,
 ) -> Result<serde_json::Value, String> {
     // TODO: Implement get_model_performance when method is available
@@ -432,7 +432,7 @@ pub async fn get_model_performance(
 
 #[tauri::command]
 pub async fn get_current_ai_metrics(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     model_id: String,
 ) -> Result<serde_json::Value, String> {
     // TODO: Implement get_current_metrics when method is available
@@ -447,7 +447,7 @@ pub async fn get_current_ai_metrics(
 
 #[tauri::command]
 pub async fn get_ai_performance_summary(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     model_id: String,
 ) -> Result<serde_json::Value, String> {
     // TODO: Implement get_performance_summary when method is available
@@ -463,7 +463,7 @@ pub async fn get_ai_performance_summary(
 
 #[tauri::command]
 pub async fn get_active_downloads(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
 ) -> Result<Vec<serde_json::Value>, String> {
     // TODO: Implement get_active_downloads when method is available
     // For now, return empty list
@@ -482,7 +482,7 @@ pub async fn cancel_model_download(
 
 #[tauri::command]
 pub async fn get_model_config(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     model_id: String,
 ) -> Result<serde_json::Value, String> {
     // TODO: Implement get_model_config when method is available
