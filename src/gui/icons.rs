@@ -11,7 +11,7 @@ pub fn load_icon(_resource_id: u16) -> Result<HICON> {
     
     let icon = unsafe {
         windows::Win32::UI::WindowsAndMessaging::LoadIconW(
-            Some(instance),
+            Some(instance.into()),
             icon_id,
         )
     };

@@ -84,7 +84,7 @@ impl TranscriptionWindow {
                 WINDOW_HEIGHT,
                 None,
                 None,
-                Some(instance),
+                Some(instance.into()),
                 Some(std::ptr::null()),
             )
         };

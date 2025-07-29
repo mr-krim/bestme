@@ -82,7 +82,7 @@ impl SystemTray {
                 0,
                 None,
                 None,
-                Some(instance),
+                Some(instance.into()),
                 Some(std::ptr::null()),
             )
         };
