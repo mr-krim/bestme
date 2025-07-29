@@ -160,9 +160,21 @@ impl AudioState {
             let is_recording = Arc::clone(&self.is_recording);
             let app_handle = self.app_handle.clone();
             
-            tokio::spawn(async move {
-                info!("Audio event processing task started.");
-                while let Some(event) = receiver.recv().await {
+            // Use std::thread instead of tokio::spawn to avoid runtime issues
+            std::thread::spawn(move || {
+                info!("Audio event processing thread started.");
+                
+                // Create a new runtime for this thread
+                let runtime = match tokio::runtime::Runtime::new() {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        error!("Failed to create Tokio runtime: {}", e);
+                        return;
+                    }
+                };
+                
+                runtime.block_on(async move {
+                    while let Some(event) = receiver.recv().await {
                     // Handle the event
                     match &event {
                         AudioEvent::Data(_) => continue, // Skip data events for emission
@@ -210,7 +222,8 @@ impl AudioState {
                         }
                     }
                 }
-                info!("Audio event processing task finished.");
+                    info!("Audio event processing task finished.");
+                });
             });
         } else {
              warn!("Attempted to process audio events, but receiver was already taken or never existed.");
