@@ -246,7 +246,7 @@ impl TranscribeState {
         }
         
         // Load model in a blocking task since it's CPU-intensive
-        let model_path_str = model_path.to_string_lossy().to_string();
+        let _model_path_str = model_path.to_string_lossy().to_string();
         // TODO: Implement whisper model loading without whisper_rs
         return Err(anyhow!("Whisper model loading not implemented without whisper_rs"));
         
@@ -379,7 +379,7 @@ impl TranscribeState {
     // Process audio buffer using Whisper with enhanced features
     async fn process_audio_buffer(&self, audio_buffer: Vec<f32>) -> Result<String> {
         let config = self.config_manager.lock().get_config().clone();
-        let speech_config = config.audio.speech.clone();
+        let _speech_config = config.audio.speech.clone();
         let whisper_params = config.whisper_params.clone();
         
         // Apply VAD if enabled
@@ -414,7 +414,7 @@ impl TranscribeState {
     }
     
     // Basic audio buffer processing (fallback)
-    async fn process_audio_buffer_basic(&self, audio_buffer: Vec<f32>) -> Result<String> {
+    async fn process_audio_buffer_basic(&self, _audio_buffer: Vec<f32>) -> Result<String> {
         // Placeholder implementation until whisper_rs is re-enabled
         Ok(String::new())
         
@@ -847,7 +847,7 @@ pub async fn start_transcription(
     // Apply any options if provided
     if let Some(options) = options {
         let mut config_manager = state.config_manager.lock();
-        let mut config = config_manager.get_config_mut();
+        let config = config_manager.get_config_mut();
         
         if let Some(model_size) = options.get("model_size").and_then(|v| v.as_str()) {
             config.audio.speech.model_size = match model_size {
@@ -1201,7 +1201,7 @@ pub async fn export_vocabulary_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bestme::config::{Config, GeneralSettings, AudioSettings, SpeechSettings, AiSettings};
+    use bestme::config::Config;
     use std::path::PathBuf;
     use tempfile::tempdir; // For creating temporary directories
 
@@ -1230,6 +1230,10 @@ mod tests {
             download_progress: Arc::new(Mutex::new(None)),
             get_model_path,
             voice_command_processor: Arc::new(Mutex::new(None)), // Not needed for these tests
+            enhanced_processor: Arc::new(Mutex::new(None)), // Not needed for these tests
+            vad: Arc::new(Mutex::new(None)), // Not needed for these tests
+            hallucination_detector: Arc::new(HallucinationDetector::new()),
+            vocabulary_manager: Arc::new(Mutex::new(None)), // Not needed for these tests
         }
     }
 

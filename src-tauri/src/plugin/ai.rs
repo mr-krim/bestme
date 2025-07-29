@@ -179,7 +179,7 @@ pub async fn enhance_text(
 
 #[tauri::command]
 pub async fn list_available_models(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
 ) -> Result<Vec<serde_json::Value>, String> {
     // Initialize model service if needed
     let mut service_guard = state.model_service.write().await;
@@ -248,7 +248,7 @@ pub async fn download_model(
 
 #[tauri::command]
 pub async fn list_downloaded_models(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
 ) -> Result<Vec<String>, String> {
     // Initialize model service if needed
     let mut service_guard = state.model_service.write().await;
@@ -268,7 +268,7 @@ pub async fn list_downloaded_models(
 
 #[tauri::command]
 pub async fn summarize_text(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     text: String,
     max_length: usize,
 ) -> Result<String, String> {
@@ -282,7 +282,7 @@ pub async fn summarize_text(
 
 #[tauri::command]
 pub async fn transform_style(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     text: String,
     target_style: String,
 ) -> Result<String, String> {
@@ -296,7 +296,7 @@ pub async fn transform_style(
 
 #[tauri::command]
 pub async fn translate_text(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     text: String,
     target_language: String,
     source_language: Option<String>,
@@ -311,7 +311,7 @@ pub async fn translate_text(
 
 #[tauri::command]
 pub async fn get_cloud_usage(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
 ) -> Result<bestme::ai::cloud::CloudAIUsage, String> {
     let cloud_guard = state.cloud_ai.read().await;
     let cloud_ai = cloud_guard.as_ref()
@@ -323,7 +323,7 @@ pub async fn get_cloud_usage(
 
 #[tauri::command]
 pub async fn save_api_key(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     provider: String,
     api_key: String,
 ) -> Result<String, String> {
@@ -498,7 +498,7 @@ pub async fn get_model_config(
 
 #[tauri::command]
 pub async fn update_model_config(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     model_id: String,
     config: serde_json::Value,
 ) -> Result<String, String> {

@@ -1,4 +1,3 @@
-use log::error;
 use sysinfo::System;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;

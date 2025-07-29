@@ -1,5 +1,6 @@
 mod integration_tests;
 mod unit_tests;
+mod enhancement_test;
 
 #[cfg(test)]
 mod test_helpers {

@@ -580,14 +580,14 @@ pub async fn save_ai_voice_settings(
         
         // Initialize AI processor if enabled and not already initialized
         if enabled {
-            let mut ai_processor = voice_state.ai_processor.lock();
+            let ai_processor = voice_state.ai_processor.lock();
             if ai_processor.is_none() {
                 // Try to get AI provider from app state
-                if let Some(app_handle) = &voice_state.app_handle {
+                if let Some(_app_handle) = &voice_state.app_handle {
                     // For now, we'll initialize without AI provider
                     // In production, you'd get this from the AI plugin
                     let manager = voice_state.manager.lock();
-                    if let Some(mgr) = manager.as_ref() {
+                    if let Some(_mgr) = manager.as_ref() {
                         // Note: In production, we'd properly convert between the manager types
                         // For now, we'll skip AI initialization since it requires RwLock
                         log::info!("AI voice commands enabled but processor initialization deferred");
@@ -603,7 +603,7 @@ pub async fn save_ai_voice_settings(
 #[tauri::command]
 pub async fn process_ai_voice_command(
     text: String,
-    context: Option<String>,
+    _context: Option<String>,
     state: State<'_, Arc<Mutex<VoiceCommandState>>>
 ) -> Result<serde_json::Value, String> {
     // Check if AI is enabled

@@ -7,7 +7,7 @@ edition = "2021"
 rust-version = "1.75"
 
 [build-dependencies]
-tauri-build = { version = "2.0.3", features = [] }
+tauri-build = { version = "2.3.1", features = [] }
 
 [dependencies]
 serde_json = "1.0.135"
@@ -29,7 +29,7 @@ dirs = "5.0"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
 
 # Tauri dependency
-tauri = { version = "2.1.1", features = ["tray-icon"] }
+tauri = { version = "2.7.0", features = ["tray-icon"] }
 
 # Added for system monitoring
 sysinfo = "0.33.0"
@@ -43,6 +43,10 @@ opentelemetry = { version = "0.24", features = ["metrics", "trace"] }
 
 # Audio dependencies
 cpal = "0.15.3"
+
+
+[dev-dependencies]
+tempfile = "3.8"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem

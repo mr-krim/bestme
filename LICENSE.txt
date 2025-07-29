@@ -1,0 +1,35 @@
+BestMe License Agreement
+
+Copyright (c) 2025 BestMe Team
+
+IMPORTANT: READ CAREFULLY
+
+This End User License Agreement ("Agreement") is a legal agreement between you and BestMe Team for the BestMe software product, which includes computer software and may include associated media, printed materials, and "online" or electronic documentation ("Software").
+
+By installing, copying, or otherwise using the Software, you agree to be bound by the terms of this Agreement.
+
+1. GRANT OF LICENSE
+BestMe Team grants you a non-exclusive, non-transferable license to use the Software on any computer you own or control.
+
+2. RESTRICTIONS
+You may not:
+- Modify, reverse engineer, decompile, or disassemble the Software
+- Rent, lease, or lend the Software
+- Use the Software for commercial purposes without written permission
+
+3. PRIVACY
+The Software processes audio locally on your device. No audio data is transmitted to external servers without your explicit consent. When using cloud AI features, only text data is sent to third-party services as configured by you.
+
+4. DISCLAIMER OF WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+
+5. LIMITATION OF LIABILITY
+IN NO EVENT SHALL BESTME TEAM BE LIABLE FOR ANY DAMAGES ARISING FROM THE USE OF OR INABILITY TO USE THE SOFTWARE.
+
+6. TERMINATION
+This Agreement is effective until terminated. You may terminate it at any time by destroying the Software and all copies thereof.
+
+7. GOVERNING LAW
+This Agreement shall be governed by the laws of the jurisdiction in which you reside.
+
+By using BestMe, you acknowledge that you have read this Agreement, understand it, and agree to be bound by its terms and conditions.

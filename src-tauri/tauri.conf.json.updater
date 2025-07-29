@@ -1,0 +1,13 @@
+{
+  "updater": {
+    "active": true,
+    "endpoints": [
+      "https://api.github.com/repos/YOUR_GITHUB_USERNAME/bestme/releases/latest"
+    ],
+    "dialog": true,
+    "pubkey": "YOUR_PUBLIC_KEY_HERE",
+    "windows": {
+      "installMode": "passive"
+    }
+  }
+}

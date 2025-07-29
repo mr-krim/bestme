@@ -124,7 +124,7 @@ tauri-plugin-shell = "2.1.0"
 
 # GUI and Windows integration
 [dependencies.windows]
-version = "0.58.0"
+version = "0.61"
 features = [
     "Win32",
     "Win32_Foundation",
@@ -150,7 +150,7 @@ features = [
 # GUI Framework is commented out for now
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58.0", features = [
+windows = { version = "0.61", features = [
     "Win32",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",

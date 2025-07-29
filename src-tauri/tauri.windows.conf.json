@@ -1,0 +1,31 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "languages": ["English"],
+        "displayLanguageSelector": false,
+        "license": "../LICENSE.txt",
+        "allowDowngrades": false,
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true
+      },
+      "wix": {
+        "language": "en-US",
+        "license": "../LICENSE.rtf",
+        "upgradeCode": "f8e8f2e3-4c3a-4b3a-8b3a-3c3a4b3a8b3a"
+      }
+    }
+  },
+  "productName": "BestMe",
+  "mainBinaryName": "BestMe"
+}

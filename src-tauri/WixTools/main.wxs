@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" Name="BestMe" Language="1033" Version="1.0.0" Manufacturer="BestMe Team" UpgradeCode="f8e8f2e3-4c3a-4b3a-8b3a-3c3a4b3a8b3a">
+        <Package InstallerVersion="300" Compressed="yes" InstallScope="perMachine" />
+        
+        <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+        <MediaTemplate EmbedCab="yes" />
+        
+        <Feature Id="ProductFeature" Title="BestMe" Level="1">
+            <ComponentGroupRef Id="ProductComponents" />
+        </Feature>
+        
+        <Icon Id="ProductIcon" SourceFile="..\\icons\\icon.ico" />
+        <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+        
+        <UIRef Id="WixUI_Minimal" />
+        <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    </Product>
+    
+    <Fragment>
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALLFOLDER" Name="BestMe" />
+            </Directory>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="BestMe" />
+            </Directory>
+        </Directory>
+    </Fragment>
+    
+    <Fragment>
+        <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <Component Id="MainExecutable" Guid="a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d">
+                <File Id="BestMeExe" Source="..\\..\\target\\release\\bestme-tauri.exe" KeyPath="yes">
+                    <Shortcut Id="ApplicationStartMenuShortcut" 
+                              Directory="ApplicationProgramsFolder"
+                              Name="BestMe" 
+                              Description="Speech-to-text application with AI voice commands"
+                              WorkingDirectory="INSTALLFOLDER"
+                              Icon="ProductIcon"
+                              IconIndex="0"
+                              Advertise="yes" />
+                </File>
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+</Wix>

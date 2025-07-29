@@ -23,6 +23,7 @@ use plugin::{
     AudioState, 
     TranscribePlugin, 
     TranscribeState,
+    AIPlugin,
     voice_commands::{VoiceCommandPlugin, VoiceCommandState,
         get_voice_commands_status, get_voice_commands_text, get_voice_commands_history,
         update_text, apply_delete_operation, undo_operation, redo_operation,
@@ -32,8 +33,7 @@ use plugin::{
         list_saved_transcripts_db, get_saved_transcript_db, save_transcript_db, 
         delete_saved_transcript_db, search_transcripts_db, export_transcripts_db
     },
-    text_injection::{TextInjectionPlugin,
-        enable_text_injection, inject_text, get_active_window,
+    text_injection::{TextInjectionPlugin, init_text_injection, inject_text, get_active_window,
         check_injection_permissions, request_injection_permissions,
         update_injection_config, set_injection_mode
     },
@@ -44,6 +44,19 @@ use plugin::{
         is_voice_commands_enabled, set_voice_commands_enabled, update_whisper_params,
         get_whisper_params, add_vocabulary_entry, remove_vocabulary_entry, search_vocabulary,
         get_vocabulary_entries, import_vocabulary_csv, export_vocabulary_csv
+    },
+    ai::{
+        init_local_ai, init_cloud_ai, enhance_text, list_available_models, download_model,
+        list_downloaded_models, summarize_text, transform_style, translate_text, get_cloud_usage,
+        save_api_key, list_saved_api_keys, delete_api_key, get_gpu_info, get_model_download_progress,
+        get_model_performance, get_current_ai_metrics, get_ai_performance_summary, get_active_downloads,
+        cancel_model_download, get_model_config, update_model_config, load_ai_model, unload_ai_model,
+        list_loaded_models, auto_select_model, analyze_text_characteristics, get_model_requirements,
+        update_model_selector_config, get_model_selection_history, clear_model_selection_cache,
+        check_model_updates, check_single_model_update, download_model_update, configure_update_checker,
+        get_update_history, clear_update_cache, validate_onnx_model, import_custom_model,
+        list_custom_models, get_custom_model, update_custom_model, delete_custom_model,
+        export_custom_model
     }
 };
 
@@ -243,7 +256,7 @@ async fn get_settings(config_manager: tauri::State<'_, Arc<Mutex<ConfigManager>>
             // Ensure model_size is lowercase string using Display trait implementation
             if let Some(audio) = value.get_mut("audio") {
                 if let Some(speech) = audio.get_mut("speech") {
-                    if let Some(model_size_enum) = speech.get("model_size") {
+                    if let Some(_model_size_enum) = speech.get("model_size") {
                         // Re-serialize just the model size using its Display trait
                         // Note: This assumes the original serialization produced the enum variant name.
                         // If `to_value(config)` already uses Display, this is redundant but safe.
@@ -425,6 +438,7 @@ struct OpenAiChatCompletionChoice {
 }
 
 #[derive(Deserialize, Debug, Clone)] // Clone needed for ai_chat_message
+#[allow(dead_code)]
 struct OpenAiChatMessageResponse {
     role: String,
     content: String,
@@ -807,7 +821,7 @@ async fn send_chat_message(
     // --- End Get AI Response ---
 
     let final_session_id: String;
-    let mut final_session_content: ChatSessionFileContent;
+    let final_session_content: ChatSessionFileContent;
 
     if let Some(mut existing_content) = current_session_content {
         // Append to existing session
@@ -1086,6 +1100,7 @@ fn main() {
         .plugin(VoiceCommandPlugin::new())
         .plugin(StoragePlugin::new())
         .plugin(TextInjectionPlugin::new())
+        .plugin(AIPlugin::default())
         .invoke_handler(tauri::generate_handler![
             get_audio_devices,
             get_whisper_models,
@@ -1154,13 +1169,58 @@ fn main() {
             search_transcripts_db,
             export_transcripts_db,
             // Text injection plugin commands
-            enable_text_injection,
+            init_text_injection,
             inject_text,
             get_active_window,
             check_injection_permissions,
             request_injection_permissions,
             update_injection_config,
-            set_injection_mode
+            set_injection_mode,
+            // AI plugin commands
+            init_local_ai,
+            init_cloud_ai,
+            enhance_text,
+            list_available_models,
+            download_model,
+            list_downloaded_models,
+            summarize_text,
+            transform_style,
+            translate_text,
+            get_cloud_usage,
+            save_api_key,
+            list_saved_api_keys,
+            delete_api_key,
+            get_gpu_info,
+            get_model_download_progress,
+            get_model_performance,
+            get_current_ai_metrics,
+            get_ai_performance_summary,
+            get_active_downloads,
+            cancel_model_download,
+            get_model_config,
+            update_model_config,
+            load_ai_model,
+            unload_ai_model,
+            list_loaded_models,
+            auto_select_model,
+            analyze_text_characteristics,
+            get_model_requirements,
+            update_model_selector_config,
+            get_model_selection_history,
+            clear_model_selection_cache,
+            check_model_updates,
+            check_single_model_update,
+            download_model_update,
+            configure_update_checker,
+            get_update_history,
+            clear_update_cache,
+            validate_onnx_model,
+            import_custom_model,
+            list_custom_models,
+            get_custom_model,
+            update_custom_model,
+            delete_custom_model,
+            export_custom_model
         ])
         .setup(|app| {
             info!("Setting up Tauri 2.0 application");
@@ -1228,7 +1288,7 @@ fn main() {
             }
             
             // Set up system tray
-            use tauri::{menu::{Menu, MenuItem}, tray::{TrayIcon, TrayIconBuilder}};
+            use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder};
             
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
