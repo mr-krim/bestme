@@ -472,7 +472,7 @@ pub async fn get_active_downloads(
 
 #[tauri::command]
 pub async fn cancel_model_download(
-    state: State<'_, AIState>,
+    _state: State<'_, AIState>,
     model_id: String,
 ) -> Result<String, String> {
     // TODO: Implement cancel_download when method is available

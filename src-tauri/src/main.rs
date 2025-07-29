@@ -1309,22 +1309,20 @@ fn main() {
             if let Some(window) = app.get_webview_window("main") {
                 info!("Main window found, setting up navigation handler...");
                 
-                // Clone window for the navigation handler
+                // Since we added the URL to the config, the window should load the correct content
+                // Let's just show it after a small delay to ensure content is loaded
                 let window_clone_nav = window.clone();
                 
-                // Listen for when the window navigates away from about:blank
-                window.on_navigation(move |url| {
-                    info!("Window navigated to: {}", url);
-                    if !url.starts_with("about:") {
-                        info!("Window loaded actual content, showing it now");
-                        window_clone_nav.show().unwrap_or_else(|e| {
-                            error!("Failed to show window after navigation: {}", e);
-                        });
-                        window_clone_nav.set_focus().unwrap_or_else(|e| {
-                            error!("Failed to focus window after navigation: {}", e);
-                        });
-                    }
-                    true // Allow navigation
+                // Use a timer to show the window after content loads
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    info!("Showing window after delay to ensure content is loaded");
+                    window_clone_nav.show().unwrap_or_else(|e| {
+                        error!("Failed to show window after delay: {}", e);
+                    });
+                    window_clone_nav.set_focus().unwrap_or_else(|e| {
+                        error!("Failed to focus window after delay: {}", e);
+                    });
                 });
                 
                 // Clone window for use in closure

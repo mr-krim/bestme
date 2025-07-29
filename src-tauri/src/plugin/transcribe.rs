@@ -821,7 +821,7 @@ impl<R: Runtime> Plugin<R> for TranscribePlugin<R> {
         "transcribe"
     }
     
-    fn initialize(&mut self, app: &AppHandle<R>, _: serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+    fn initialize(&mut self, _app: &AppHandle<R>, _: serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
         info!("Initializing transcription plugin");
         
         // Don't register another plugin inside plugin initialization
