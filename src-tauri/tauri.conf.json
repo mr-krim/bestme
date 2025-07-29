@@ -53,9 +53,7 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       },
-      "nsis": {
-        "installMode": "perMachine"
-      }
+      "nsis": {}
     },
     "resources": []
   },
