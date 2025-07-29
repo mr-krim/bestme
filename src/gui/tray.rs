@@ -82,7 +82,7 @@ impl SystemTray {
                 0,
                 None,
                 None,
-                instance,
+                Some(instance),
                 Some(std::ptr::null()),
             )
         };
@@ -204,12 +204,12 @@ impl SystemTray {
                                 flags,
                                 point.x,
                                 point.y,
-                                0,
+                                Some(0),
                                 hwnd,
                                 None,
                             );
                             
-                            PostMessageA(hwnd, 0, WPARAM(0), LPARAM(0));
+                            PostMessageA(Some(hwnd), 0, WPARAM(0), LPARAM(0));
                         }
                         LRESULT(0)
                     },

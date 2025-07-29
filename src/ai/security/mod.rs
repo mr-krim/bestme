@@ -189,7 +189,7 @@ impl ApiKeyManager {
         let mut credential_ptr = std::ptr::null_mut();
         
         unsafe {
-            CredReadW(windows::core::PCWSTR::from_raw(target_name.as_ptr()), CRED_TYPE_GENERIC, 0, &mut credential_ptr)
+            CredReadW(windows::core::PCWSTR::from_raw(target_name.as_ptr()), CRED_TYPE_GENERIC, Some(0), &mut credential_ptr)
                 .map_err(|e| AIError::ConfigError(format!("Failed to read key: {:?}", e)))?;
             
             let credential = &*credential_ptr;
@@ -249,7 +249,7 @@ impl ApiKeyManager {
         let target_name: Vec<u16> = OsStr::new(key_id).encode_wide().chain(Some(0)).collect();
         
         unsafe {
-            CredDeleteW(windows::core::PCWSTR::from_raw(target_name.as_ptr()), CRED_TYPE_GENERIC, 0)
+            CredDeleteW(windows::core::PCWSTR::from_raw(target_name.as_ptr()), CRED_TYPE_GENERIC, Some(0))
                 .map_err(|e| AIError::ConfigError(format!("Failed to delete key: {:?}", e)))?;
         }
         

@@ -84,7 +84,7 @@ impl TranscriptionWindow {
                 WINDOW_HEIGHT,
                 None,
                 None,
-                instance,
+                Some(instance),
                 Some(std::ptr::null()),
             )
         };
@@ -164,10 +164,10 @@ impl TranscriptionWindow {
                         0,              // Italic
                         0,              // Underline
                         0,              // StrikeOut
-                        DEFAULT_CHARSET.0 as u32,      // CharSet
-                        OUT_DEFAULT_PRECIS.0 as u32,   // OutPrecision
-                        CLIP_DEFAULT_PRECIS.0 as u32,  // ClipPrecision
-                        DEFAULT_QUALITY.0 as u32,      // Quality
+                        DEFAULT_CHARSET,               // CharSet
+                        OUT_DEFAULT_PRECIS,            // OutPrecision
+                        CLIP_DEFAULT_PRECIS,           // ClipPrecision
+                        DEFAULT_QUALITY,               // Quality
                         (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32, // PitchAndFamily
                         PCSTR(b"Arial\0".as_ptr()),
                     );

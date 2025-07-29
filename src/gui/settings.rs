@@ -62,7 +62,7 @@ impl SettingsDialog {
                 500,
                 None,
                 None,
-                instance,
+                Some(instance),
                 Some(std::ptr::null()),
             )
         };
