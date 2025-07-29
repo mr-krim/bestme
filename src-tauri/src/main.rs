@@ -97,6 +97,12 @@ async fn get_audio_devices(
 }
 
 #[tauri::command]
+async fn get_recent_transcription_list() -> Result<Vec<serde_json::Value>, String> {
+    // Return empty list for now - this is just to fix the UI error
+    Ok(vec![])
+}
+
+#[tauri::command]
 async fn get_whisper_models() -> Vec<String> {
     // Add all the available Whisper models
     vec![
@@ -1144,6 +1150,7 @@ fn main() {
             get_whisper_models,
             get_model_download_info,
             get_supported_languages,
+            get_recent_transcription_list,
             save_all_settings,
             get_settings,
             toggle_voice_commands,
