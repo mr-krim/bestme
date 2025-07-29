@@ -1,0 +1,16 @@
+{
+  "name": "bestme-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd ui && npm run dev",
+    "build": "cd ui && npm run build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "test": "cd ui && npm test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}
