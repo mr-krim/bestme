@@ -54,15 +54,10 @@
         "type": "downloadBootstrapper"
       },
       "nsis": {
-        "headerImage": null,
-        "sidebarImage": null,
-        "installerIcon": null,
         "installMode": "perMachine"
       }
     },
-    "resources": [
-      "../config/config.json"
-    ]
+    "resources": []
   },
   "plugins": {
     "clipboard": {
