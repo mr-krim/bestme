@@ -402,7 +402,9 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    gap: 16px;
+    padding: 16px;
+    box-sizing: border-box;
+    overflow: hidden;
   }
   
   .control-panel {
@@ -412,6 +414,8 @@
     padding: 16px;
     background-color: var(--panel-bg, #f5f5f5);
     border-radius: 4px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
   }
   
   .record-button {
@@ -475,6 +479,8 @@
     border-radius: 4px;
     overflow: hidden;
     position: relative;
+    margin-bottom: 12px;
+    flex-shrink: 0;
   }
   
   .waveform {
@@ -525,6 +531,8 @@
     display: flex;
     gap: 8px;
     justify-content: flex-end;
+    margin-top: 12px;
+    flex-shrink: 0;
   }
   
   .action-button {
@@ -583,7 +591,8 @@
     padding: 12px 16px;
     border-radius: 4px;
     animation: slideIn 0.3s ease-out;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
   }
   
   .voice-command-feedback.success {
@@ -605,8 +614,9 @@
     background-color: var(--ai-bg, #e3f2fd);
     border: 1px solid var(--ai-border, #2196f3);
     border-radius: 4px;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
     font-size: 0.9em;
+    flex-shrink: 0;
     color: var(--ai-text, #1565c0);
   }
   
