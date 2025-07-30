@@ -663,7 +663,7 @@
   
   <div class="panels-container">
     <LeftPanel 
-      activeItem={activePanel} 
+      bind:activeItem={activePanel} 
       on:navigate={handleNavigate} 
     />
     
@@ -822,9 +822,11 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    width: 100vw;
     background-color: var(--app-bg);
     color: var(--text-primary);
     overflow: hidden;
+    position: relative;
   }
   
   .panels-container {
@@ -832,5 +834,6 @@
     flex: 1;
     overflow: hidden;
     height: calc(100vh - 48px - 32px);
+    width: 100%;
   }
 </style> 

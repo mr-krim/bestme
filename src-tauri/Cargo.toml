@@ -25,7 +25,7 @@ env_logger = "0.11.5"
 regex = "1.11.1"
 chrono = { version = "0.4.39", features = ["serde"] }
 dirs = "5.0"
-# whisper-rs = "0.11.1"
+whisper-rs = "0.11.1"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
 
 # Tauri dependency
