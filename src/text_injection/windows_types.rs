@@ -9,6 +9,7 @@ pub mod compat {
     pub type KeyEventFlags = u32;
     
     // Re-export the actual constants (only used ones)
+    #[allow(unused_imports)] // These are used via wildcard import in windows.rs
     pub use windows::Win32::UI::Input::KeyboardAndMouse::{
         KEYEVENTF_KEYUP, 
         KEYEVENTF_UNICODE,

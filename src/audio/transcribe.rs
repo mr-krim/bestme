@@ -139,7 +139,7 @@ impl TranscriptionManager {
             event_sender,
             current_text: Arc::new(Mutex::new(String::new())),
             voice_command_processor: None, // Will be initialized when enabled
-            audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(AUDIO_BUFFER_SECONDS * SAMPLE_RATE))),
+            audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(AUDIO_BUFFER_SECONDS * TARGET_SAMPLE_RATE))),
             #[cfg(feature = "whisper")]
             whisper_context: None,
             #[cfg(feature = "storage")]
