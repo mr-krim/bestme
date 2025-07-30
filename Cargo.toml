@@ -12,7 +12,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["tauri-2", "config", "audio", "transcribe", "storage", "commands", "text-injection", "ai-all"]
+default = ["tauri-2", "config", "audio", "transcribe", "storage", "commands", "text-injection", "ai-all", "whisper"]
 whisper = ["dep:whisper-rs"] # Enable Whisper speech recognition
 tauri-2 = ["dep:tauri", "dep:tauri-build"]
 config = []

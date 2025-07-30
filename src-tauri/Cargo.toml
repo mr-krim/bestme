@@ -15,7 +15,7 @@ serde = { version = "1.0.217", features = ["derive"] }
 log = "0.4.22"
 anyhow = "1.0.94"
 parking_lot = "0.12.3"
-bestme = { path = "..", features = ["config", "text-injection", "storage", "audio", "transcribe", "commands", "ai-local"] }
+bestme = { path = "..", features = ["config", "text-injection", "storage", "audio", "transcribe", "commands", "ai-local", "whisper"] }
 reqwest = { version = "0.12.12", features = ["json", "stream"] }
 tokio-util = { version = "0.7.13", features = ["codec"] }
 tokio-stream = "0.1.16"
