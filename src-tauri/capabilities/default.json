@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/capabilities.json",
   "identifier": "default",
   "description": "Default capabilities for BestMe",
-  "platforms": ["windows", "macos", "linux"],
+  "platforms": ["windows", "macOS", "linux"],
   "windows": ["main"],
   "permissions": [
     "core:default",
