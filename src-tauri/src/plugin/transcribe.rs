@@ -7,7 +7,7 @@ use std::fs;
 use tauri::{AppHandle, State, plugin::Plugin, Runtime, Emitter, Manager};
 use tokio::sync::mpsc;
 use tokio::io::AsyncWriteExt;
-// use whisper_rs::{WhisperContext, FullParams, SamplingStrategy};
+use whisper_rs::{WhisperContext, FullParams, SamplingStrategy};
 use futures::StreamExt;
 use serde_json::json;
 use std::marker::PhantomData;
@@ -84,7 +84,7 @@ pub struct TranscribeState {
     transcription_active: Arc<Mutex<bool>>,
     audio_receiver: Arc<Mutex<Option<mpsc::Receiver<AudioData>>>>,
     audio_sender: Arc<Mutex<Option<mpsc::Sender<AudioData>>>>,
-    // whisper_context: Arc<Mutex<Option<WhisperContext>>>,
+    whisper_context: Arc<Mutex<Option<WhisperContext>>>,
     processor: Arc<Mutex<Option<Arc<EnhancedWhisperProcessor>>>>,
     audio_buffer: Arc<Mutex<Vec<f32>>>,
     app_handle: Option<AppHandle>,
@@ -163,6 +163,7 @@ impl TranscribeState {
             transcription_active: Arc::new(Mutex::new(false)),
             audio_receiver: Arc::new(Mutex::new(Some(audio_receiver))),
             audio_sender: Arc::new(Mutex::new(Some(audio_sender))),
+            whisper_context: Arc::new(Mutex::new(None)),
             processor: Arc::new(Mutex::new(None)),
             audio_buffer: Arc::new(Mutex::new(Vec::with_capacity(AUDIO_BUFFER_SIZE))),
             app_handle: app_handle.clone(),
@@ -246,18 +247,15 @@ impl TranscribeState {
         }
         
         // Load model in a blocking task since it's CPU-intensive
-        let _model_path_str = model_path.to_string_lossy().to_string();
-        // TODO: Implement whisper model loading without whisper_rs
-        return Err(anyhow!("Whisper model loading not implemented without whisper_rs"));
+        let model_path_str = model_path.to_string_lossy().to_string();
         
-        /*
         match tokio::task::spawn_blocking(move || {
             // Use the new_with_params method instead of the deprecated new method
             WhisperContext::new_with_params(&model_path_str, Default::default())
         }).await? {
             Ok(context) => {
-                // let mut whisper_context = self.whisper_context.lock();
-                // *whisper_context = Some(context);
+                let mut whisper_context = self.whisper_context.lock();
+                *whisper_context = Some(context);
                 info!("Whisper model loaded successfully");
                 Ok(())
             },
@@ -265,7 +263,7 @@ impl TranscribeState {
                 error!("Failed to load Whisper model: {}", e);
                 Err(anyhow::anyhow!("Failed to load Whisper model: {}", e))
             }
-        }*/
+        }
     }
     
     // Get model path based on model size
@@ -789,7 +787,7 @@ impl Clone for TranscribeState {
             transcription_active: Arc::clone(&self.transcription_active),
             audio_receiver: Arc::clone(&self.audio_receiver),
             audio_sender: Arc::clone(&self.audio_sender),
-            // whisper_context: Arc::clone(&self.whisper_context),
+            whisper_context: Arc::clone(&self.whisper_context),
             processor: Arc::clone(&self.processor),
             audio_buffer: Arc::clone(&self.audio_buffer),
             app_handle: self.app_handle.clone(),
