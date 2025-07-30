@@ -291,13 +291,17 @@ impl CaptureManager {
                 *level = peak;
             }
             
-            // Send peak level event
-            let peak_sender = input_event_sender.clone();
-            tokio::spawn(async move {
-                if let Err(e) = peak_sender.send(AudioEvent::Level(peak)).await {
-                    error!("Failed to send audio level event: {}", e);
+            // Send peak level event using try_send
+            if let Err(e) = input_event_sender.try_send(AudioEvent::Level(peak)) {
+                match e {
+                    tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                        // Don't log for level events as they're frequent
+                    }
+                    tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                        // Channel closed, stop trying to send
+                    }
                 }
-            });
+            }
             
             // Call peak level callback if provided
             if let Some(callback) = &peak_callback {
@@ -311,14 +315,17 @@ impl CaptureManager {
                 callback(audio_data.clone());
             }
             
-            // Send audio data event
-            let data_sender = input_event_sender.clone();
-            let data_clone = audio_data;
-            tokio::spawn(async move {
-                if let Err(e) = data_sender.send(AudioEvent::Data(data_clone)).await {
-                    error!("Failed to send audio data event: {}", e);
+            // Send audio data event using try_send
+            if let Err(e) = input_event_sender.try_send(AudioEvent::Data(audio_data)) {
+                match e {
+                    tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                        // Don't log for data events as they're frequent
+                    }
+                    tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                        // Channel closed, stop trying to send
+                    }
                 }
-            });
+            }
         };
         
         // Create an error callback
@@ -327,12 +334,17 @@ impl CaptureManager {
             let err_str = format!("Audio capture error: {}", err);
             error!("{}", err_str);
             
-            let sender = err_event_sender.clone();
-            tokio::spawn(async move {
-                if let Err(e) = sender.send(AudioEvent::Error(err_str.clone())).await {
-                    error!("Failed to send audio error event: {}", e);
+            // Send error event using try_send
+            if let Err(e) = err_event_sender.try_send(AudioEvent::Error(err_str.clone())) {
+                match e {
+                    tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                        error!("Audio event channel is full, dropping error event");
+                    }
+                    tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                        error!("Audio event channel is closed");
+                    }
                 }
-            });
+            }
         };
         
         // Build and store the input stream
@@ -352,13 +364,17 @@ impl CaptureManager {
         info!("Started audio recording");
         self.is_recording = true;
         
-        // Send started event
-        let event_sender = self.event_sender.clone();
-        tokio::spawn(async move {
-            if let Err(e) = event_sender.send(AudioEvent::Started).await {
-                error!("Failed to send audio start event: {}", e);
+        // Send started event using try_send for synchronous context
+        if let Err(e) = self.event_sender.try_send(AudioEvent::Started) {
+            match e {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                    warn!("Audio event channel is full, dropping start event");
+                }
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                    error!("Audio event channel is closed");
+                }
             }
-        });
+        }
         
         Ok(())
     }
@@ -375,13 +391,17 @@ impl CaptureManager {
         info!("Stopped audio recording");
         self.is_recording = false;
         
-        // Send stopped event
-        let event_sender = self.event_sender.clone();
-        tokio::spawn(async move {
-            if let Err(e) = event_sender.send(AudioEvent::Stopped).await {
-                error!("Failed to send audio stop event: {}", e);
+        // Send stopped event using try_send for synchronous context
+        if let Err(e) = self.event_sender.try_send(AudioEvent::Stopped) {
+            match e {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                    warn!("Audio event channel is full, dropping stop event");
+                }
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                    error!("Audio event channel is closed");
+                }
             }
-        });
+        }
         
         Ok(())
     }
