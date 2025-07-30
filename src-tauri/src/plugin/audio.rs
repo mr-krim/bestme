@@ -197,7 +197,8 @@ impl AudioState {
                              error!("Failed to emit audio event '{}': {}", event_name, e);
                         }
                     } else {
-                        warn!("AppHandle not available in AudioState for emitting events.");
+                        // AppHandle not available yet - this is expected during initialization
+                        // Don't log to avoid spamming
                     }
 
                     match event {
