@@ -5,7 +5,8 @@
   "main": "main/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "NODE_ENV=development electron .",
+    "dev": "npm run build:renderer && cross-env NODE_ENV=development electron .",
+    "dev:quick": "electron .",
     "build:renderer": "cd renderer && npm run build",
     "build": "npm run build:renderer && electron-builder",
     "dist": "npm run build",
@@ -21,12 +22,13 @@
   "author": "BestMe Team",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^37.2.5",
+    "cross-env": "^7.0.3",
+    "electron": "^33.3.1",
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
-    "better-sqlite3": "^12.2.0",
-    "electron-store": "^10.1.0",
+    "better-sqlite3": "^13.0.1",
+    "electron-store": "^11.0.0",
     "mic": "^2.1.2",
     "wav": "^1.0.2"
   },
