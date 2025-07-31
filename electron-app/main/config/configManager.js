@@ -1,4 +1,4 @@
-const Store = require('electron-store').default;
+const Store = require('electron-store');
 const { app } = require('electron');
 const path = require('path');
 
