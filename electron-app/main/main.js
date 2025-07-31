@@ -87,13 +87,10 @@ class BestMeApp {
     });
     
     // Load the app
-    if (isDev) {
-      // In development, you might want to load from a dev server
-      this.mainWindow.loadFile(path.join(__dirname, '../renderer/dist/index.html'));
-      this.mainWindow.webContents.openDevTools();
-    } else {
-      this.mainWindow.loadFile(path.join(__dirname, '../renderer/dist/index.html'));
-    }
+    this.mainWindow.loadFile(path.join(__dirname, '../renderer/dist/index.html'));
+    
+    // Always open DevTools for debugging
+    this.mainWindow.webContents.openDevTools();
     
     // Handle window events
     this.mainWindow.once('ready-to-show', () => {
