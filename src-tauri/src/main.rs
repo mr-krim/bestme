@@ -654,7 +654,7 @@ async fn delete_saved_transcript(id: String, app_handle: AppHandle) -> Result<()
 }
 
 #[tauri::command]
-async fn list_chat_sessions(app_handle: AppHandle) -> Result<Vec<ChatSessionListItem>, String> {
+async fn get_chat_session_list(app_handle: AppHandle) -> Result<Vec<ChatSessionListItem>, String> {
     info!("Listing chat sessions");
 
     let data_dir = app_handle.path()
@@ -1205,7 +1205,7 @@ fn main() {
             save_transcript,
             get_saved_transcript,
             delete_saved_transcript,
-            list_chat_sessions,
+            get_chat_session_list,
             get_chat_session,
             send_chat_message,
             delete_chat_session,
