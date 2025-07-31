@@ -306,6 +306,7 @@
   // Handle microphone toggle
   async function handleMicToggle() {
     console.log(`Mic toggle requested. Currently recording: ${isRecording}`);
+    console.log('Button element state should be:', isRecording ? 'Stop (active)' : 'Record (inactive)');
     if (isRecording) {
       // Request to stop recording
       try {
@@ -613,11 +614,11 @@
 
       // Optional: Listen for started/stopped if needed to sync isRecording more reliably
       const startedListener = await listen('transcribe:started', () => {
-          console.log('Transcription started event');
+          console.log('Transcription started event received - updating UI state');
           isRecording = true;
       });
       const stoppedListener = await listen('transcribe:stopped', () => {
-          console.log('Transcription stopped event');
+          console.log('Transcription stopped event received - updating UI state');
           isRecording = false;
       });
 
@@ -638,14 +639,19 @@
     // Setup polling interval for system status
     monitoringInterval = setInterval(checkBackendStatus, 5000);
     
-    // Check initial recording state
-    try {
-      const recording = await invoke<boolean>('is_transcribing');
-      isRecording = recording;
-      console.log('Initial recording state:', recording);
-    } catch (error) {
-      console.error('Failed to get initial recording state:', error);
-    }
+    // Check initial recording state with a small delay to ensure backend is ready
+    setTimeout(async () => {
+      try {
+        const recording = await invoke<boolean>('is_transcribing');
+        console.log('Initial recording state check:', recording);
+        if (isRecording !== recording) {
+          console.log(`Updating recording state from ${isRecording} to ${recording}`);
+          isRecording = recording;
+        }
+      } catch (error) {
+        console.error('Failed to get initial recording state:', error);
+      }
+    }, 2000); // Wait 2 seconds for backend initialization
   });
   
   onDestroy(() => {
