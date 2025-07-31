@@ -1,3 +1,6 @@
+# Demo screenshots
+demo-screenshots/
+
 # Rust build artifacts
 /target
 **/*.rs.bk

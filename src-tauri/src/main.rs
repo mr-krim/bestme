@@ -310,6 +310,45 @@ async fn get_voice_command_settings(config_manager: tauri::State<'_, Arc<Mutex<C
 }
 
 #[tauri::command]
+async fn get_voice_command_list() -> Result<Vec<serde_json::Value>, String> {
+    // Return the list of available voice commands
+    use serde_json::json;
+    
+    Ok(vec![
+        json!({
+            "id": "start_recording",
+            "name": "Start Recording",
+            "command": "start recording",
+            "description": "Begins audio recording and transcription"
+        }),
+        json!({
+            "id": "stop_recording",
+            "name": "Stop Recording", 
+            "command": "stop recording",
+            "description": "Stops audio recording and transcription"
+        }),
+        json!({
+            "id": "clear_text",
+            "name": "Clear Text",
+            "command": "clear text",
+            "description": "Clears the current transcription text"
+        }),
+        json!({
+            "id": "save_transcript",
+            "name": "Save Transcript",
+            "command": "save transcript",
+            "description": "Saves the current transcription"
+        }),
+        json!({
+            "id": "new_paragraph",
+            "name": "New Paragraph",
+            "command": "new paragraph",
+            "description": "Inserts a new paragraph break"
+        })
+    ])
+}
+
+#[tauri::command]
 async fn save_voice_command_settings(
     enabled: bool,
     command_prefix: Option<String>,
@@ -1156,6 +1195,7 @@ fn main() {
             toggle_voice_commands,
             get_voice_command_settings,
             save_voice_command_settings,
+            get_voice_command_list,
             // System monitor commands
             get_cpu_usage,
             get_memory_usage,
