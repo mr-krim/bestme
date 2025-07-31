@@ -595,6 +595,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "uuid",
+ "whisper-rs",
 ]
 
 [[package]]
