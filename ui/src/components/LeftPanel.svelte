@@ -21,8 +21,10 @@
   
   // Handle navigation item click
   function handleNavClick(itemId: string) {
-    activeItem = itemId;
-    dispatch('navigate', { panel: itemId });
+    if (activeItem !== itemId) {
+      activeItem = itemId;
+      dispatch('navigate', { panel: itemId });
+    }
   }
 
   // Handle keyboard interaction for navigation items

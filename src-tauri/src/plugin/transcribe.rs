@@ -492,6 +492,11 @@ impl TranscribeState {
             *active = true;
         }
         
+        // Emit started event to frontend
+        if let Some(handle) = &self.app_handle {
+            let _ = handle.emit("transcribe:started", ());
+        }
+        
         // Start processing audio
         let audio_receiver = {
             let mut receiver = self.audio_receiver.lock();
@@ -687,6 +692,11 @@ impl TranscribeState {
     pub fn stop_transcription(&self) -> Result<()> {
         let mut active = self.transcription_active.lock();
         *active = false;
+        
+        // Emit stopped event to frontend
+        if let Some(handle) = &self.app_handle {
+            let _ = handle.emit("transcribe:stopped", ());
+        }
         
         Ok(())
     }

@@ -637,6 +637,15 @@
 
     // Setup polling interval for system status
     monitoringInterval = setInterval(checkBackendStatus, 5000);
+    
+    // Check initial recording state
+    try {
+      const recording = await invoke<boolean>('is_transcribing');
+      isRecording = recording;
+      console.log('Initial recording state:', recording);
+    } catch (error) {
+      console.error('Failed to get initial recording state:', error);
+    }
   });
   
   onDestroy(() => {
